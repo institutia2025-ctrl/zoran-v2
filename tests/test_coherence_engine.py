@@ -186,3 +186,40 @@ def test_provenance_decl_conforme():
     assert PROVENANCE_DECL["CANONICAL_SPEC"] == "SPEC_ENGINE_05_COHERENCE_ENGINE"
     assert PROVENANCE_DECL["BEHAVIOR_FLAGS"]["requests_llm_prechoices"] is False
     assert COMPONENT_ID == "05_COHERENCE_ENGINE" and VERSION == "1.0.0"
+
+
+# --- RÉGRESSIONS audit ChatGPT (via MCP) 2026-07-14 ---
+
+def test_object_key_liste_fail_closed_sans_crash():
+    # ChatGPT #5 : object_key=liste -> TypeError unhashable. Doit être fail-closed, pas un crash.
+    from zoran_v2.coherence_engine import MALFORMED
+    cd = _cd(canons_selected=[{"object_key": ["x"], "frame": "CODE", "canons": ["A"]}])
+    v = run_coherence_engine(_env(cd=cd))  # ne doit PAS lever TypeError
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED
+
+
+def test_univers_vide_n_autorise_pas_le_llm():
+    # ChatGPT #1 : univers vide -> S=1.0 mais NE DOIT PAS autoriser le LLM « à vide ».
+    v = run_coherence_engine(_env())
+    assert v["status"] == PASS and v["coherence"]["total_pairs"] == 0
+    assert v["coherence"]["delta_phi"] == 1.0
+    assert v["resource"]["authorize_llm"] is False
+
+
+def test_fingerprint_non_str_bloque():
+    # ChatGPT #3 : fingerprint non vérifié en type. Non-str -> fail-closed.
+    cd = _cd(fingerprint=123)
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == BLOCKED and v["blocked_by"] == "04_CANON_DETERMINATION"
+
+
+def test_sigma_inclut_objets_zero_canon():
+    # ChatGPT #7-8 : σ doit inclure les objets à 0 canon (dispersion non sous-estimée).
+    cd = _cd(
+        canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
+        uncanonized=[{"object_key": "k2", "frame": "TEXT"}],
+    )
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    # counts = [1, 0] (k1=1 canon, k2=0) -> mean .5, pstdev .5 -> CV = 1.0 (avant fix : 0.0)
+    assert v["coherence"]["sigma"] == 1.0
