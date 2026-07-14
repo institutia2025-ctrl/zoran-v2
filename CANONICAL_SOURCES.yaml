@@ -16,3 +16,5 @@ sources:
     title: Porte 5 — moteur de cohérence (1re passe) S canonique + verdict ressource
   - id: SPEC_ENGINE_06_LLM_REQUEST_BUILD
     title: Porte 6 — assemblage déterministe de la requête LLM (respecte veto 05, PII-free)
+  - id: SPEC_ENGINE_07_LLM_EXECUTION
+    title: Porte 7 — exécution LLM (seule étape générative ; client injecté, appel unique)
