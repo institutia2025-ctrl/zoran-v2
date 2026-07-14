@@ -163,3 +163,10 @@ def test_gouvernance_contrat_complet():
 def test_provenance_decl_conforme():
     assert PROVENANCE_DECL["CANONICAL_SPEC"] == "SPEC_ENGINE_03_OPERANTS_OPERES_ANALYSIS"
     assert PROVENANCE_DECL["BEHAVIOR_FLAGS"]["requests_llm_prechoices"] is False
+
+
+def test_load_operant_registry_fail_closed():
+    from zoran_v2.operants_operes_analysis import _operants_from_yaml_obj
+    assert _operants_from_yaml_obj(None) == []          # YAML vide
+    assert _operants_from_yaml_obj(42) == []            # top-level non-dict
+    assert _operants_from_yaml_obj({"operants": [{"id": "OP_X"}]}) == [{"id": "OP_X"}]

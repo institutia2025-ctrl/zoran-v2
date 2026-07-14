@@ -136,13 +136,18 @@ def run_frame_selection(envelope: dict, registry: list) -> dict:
     }
 
 
+def _frames_from_yaml_obj(obj) -> list:
+    """Fail-closed : liste vide si YAML vide (None) ou top-level non-dict."""
+    return obj.get("frames", []) if isinstance(obj, dict) else []
+
+
 def load_frame_registry(path=None) -> list:
-    """Partie IMPURE fine : charge le registre déclaratif ANALYSIS_FRAMES.yaml."""
+    """Partie IMPURE fine : charge le registre ANALYSIS_FRAMES.yaml (fail-closed)."""
     import yaml
     from pathlib import Path
     p = Path(path) if path else Path(__file__).resolve().parents[1] / "ANALYSIS_FRAMES.yaml"
     with open(p, encoding="utf-8") as f:
-        return yaml.safe_load(f).get("frames", [])
+        return _frames_from_yaml_obj(yaml.safe_load(f))
 
 
 def main(envelope: dict) -> dict:
