@@ -4,6 +4,8 @@ import pytest
 from zoran_v2.runtime_check import (
     COMPONENT_ID,
     FAIL,
+    GOVERNANCE,
+    GOVERNANCE_REQUIRED_KEYS,
     PASS,
     UNVERIFIED,
     VERSION,
@@ -68,6 +70,16 @@ def test_deterministe():
 def test_facts_invalides_leve_typeerror():
     with pytest.raises(TypeError):
         run_runtime_check(None)
+
+
+def test_gouvernance_contrat_complet():
+    """Le composant est un objet V2 gouverné complet (falsifiable)."""
+    for k in GOVERNANCE_REQUIRED_KEYS:
+        assert k in GOVERNANCE, f"champ gouvernance manquant: {k}"
+        assert GOVERNANCE[k], f"champ gouvernance vide: {k}"
+    assert isinstance(GOVERNANCE["GUARD_IDS"], list) and GOVERNANCE["GUARD_IDS"]
+    assert GOVERNANCE["OBJECT_ID"] == "ZORAN-V2-COMPONENT-00-RUNTIME-CHECK"
+    assert GOVERNANCE["VERSION"] == VERSION
 
 
 def test_collect_facts_contrat_cles():

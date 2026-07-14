@@ -12,6 +12,36 @@ from __future__ import annotations
 COMPONENT_ID = "00_RUNTIME_CHECK"
 VERSION = "1.0.0"
 
+# --- Contrat de gouvernance du composant (objet V2 gouverné complet) ---
+GOVERNANCE = {
+    "OBJECT_ID": "ZORAN-V2-COMPONENT-00-RUNTIME-CHECK",
+    "META_ID": "META-ZORAN-V2-COMPONENT-00",
+    "VERSION": VERSION,
+    "OWNER": "FRED",
+    "PROVENANCE": "MISSION ENGINE_00_RUNTIME_CHECK · spec 00 · branche mission/engine-00-runtime-check",
+    "GUARD_IDS": [
+        "FAIL_CLOSED",
+        "DETERMINISTIC",
+        "NO_LLM",
+        "NO_NETWORK",
+        "NO_REAL_DATA",
+        "NO_MUTATION",
+        "UNVERIFIED_IS_FAIL",
+    ],
+    "TRACEABILITY": "sortie structuree checks[]+first_failure ; SHA git ; run CI",
+    "VALIDATION": "tests deterministes pytest + CI Python 3.13",
+    "ROLLBACK": "git : branche non fusionnee dans seed-bootstrap ; git revert du commit",
+    "DETECTION_MODIF": "SHA git + CI GitHub Actions",
+    "ALERTE": "status=FAIL / first_failure ; jamais PASS silencieux (NON_VERIFIE = echec porte)",
+    "ANTI_REGRESSION": "tests fail-closed + NON_VERIFIE + contrat de gouvernance verifie par test ; CI bloque le merge",
+}
+
+GOVERNANCE_REQUIRED_KEYS = (
+    "OBJECT_ID", "META_ID", "VERSION", "OWNER", "PROVENANCE", "GUARD_IDS",
+    "TRACEABILITY", "VALIDATION", "ROLLBACK", "DETECTION_MODIF", "ALERTE",
+    "ANTI_REGRESSION",
+)
+
 # Contrat de version Python : >= 3.11 et < 3.14
 PY_MIN = (3, 11)
 PY_MAX_EXCL = (3, 14)
