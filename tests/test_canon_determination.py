@@ -179,6 +179,16 @@ def test_priority_non_entiere_ignore():
     assert v["uncanonized"] == [{"object_key": "k", "frame": "CODE"}]
 
 
+def test_id_non_str_ignore_pas_de_crash():
+    # Audit total P2 : id non-str (liste/dict) -> rejeté (pas de TypeError comme clé).
+    reg = [{"id": ["X"], "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10},
+           {"id": {"k": 1}, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10},
+           {"id": "CANON_OK", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10}]
+    v = run_canon_determination(
+        _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])]), reg)  # ne doit PAS crasher
+    assert v["canons_selected"][0]["canons"] == ["CANON_OK"]
+
+
 def test_canon_sans_id_ignore():
     reg = [{"applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10},
            {"id": "CANON_OK", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10}]

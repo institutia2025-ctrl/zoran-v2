@@ -88,9 +88,10 @@ def test_requete_construite_si_autorise():
     assert req["coherence_S"] == 0.83
     assert req["frames"] == ["CODE"]
     assert req["targets"] == [{
-        "object_key": "k1", "kind": "code", "frame": "CODE",
+        "object_public_id": "OBJ-0001", "kind": "code", "frame": "CODE",
         "canons": ["CANON_STRUCTURE"], "operants": ["OP_DESCRIBE"],
     }]
+    assert v["object_id_map"] == {"OBJ-0001": "k1"}
 
 
 def test_cibles_uniquement_paires_resolues():
@@ -109,7 +110,23 @@ def test_pii_free_policy_presente():
         canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
         analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}],
     ))
-    assert v["llm_request"]["pii_policy"] == "NO_RAW_USER_CONTENT_STRUCTURAL_ONLY"
+    assert v["llm_request"]["pii_policy"] == "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT"
+
+
+def test_object_key_pii_n_atteint_pas_le_llm():
+    # Audit total P0 : object_key = contenu utilisateur normalisé (01 : f"{kind}\x1f{normalized}").
+    # Il NE DOIT PAS apparaître dans la requête envoyée au LLM ; seul un id opaque y figure.
+    import json
+    pii = "code\x1fjean-dupont-dossier-medical"
+    v = run_llm_request_build(_env(
+        objects=[{"object_key": pii, "kind": "code"}],
+        canons_selected=[{"object_key": pii, "frame": "CODE", "canons": ["C"]}],
+        analysis=[{"object_key": pii, "frame": "CODE", "operants": ["O"]}],
+    ))
+    blob = json.dumps(v["llm_request"], ensure_ascii=False)
+    assert pii not in blob  # AUCUNE fuite de la clé dérivée dans la requête
+    assert v["llm_request"]["targets"][0]["object_public_id"] == "OBJ-0001"
+    assert v["object_id_map"] == {"OBJ-0001": pii}  # correspondance LOCALE seulement
 
 
 def test_deterministe():

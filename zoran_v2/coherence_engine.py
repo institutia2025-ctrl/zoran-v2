@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import statistics
 
+from zoran_v2.canon_determination import _fingerprint as _canon_fingerprint
+
 COMPONENT_ID = "05_COHERENCE_ENGINE"
 VERSION = "1.0.0"
 
@@ -81,6 +83,7 @@ FS02 = "02_ANALYSIS_FRAME_SELECTION"
 OA03 = "03_OPERANTS_OPERES_ANALYSIS"
 CD04 = "04_CANON_DETERMINATION"
 MALFORMED = "05_COHERENCE_ENGINE_MALFORMED_INPUT"
+FINGERPRINT_MISMATCH = "05_COHERENCE_ENGINE_FINGERPRINT_MISMATCH"
 ORDER_KEY = "coherence_globale_deterministe_puis_verdict_ressource"
 
 OUTPUT_KEYS = (
@@ -131,6 +134,11 @@ def run_coherence_engine(envelope: dict) -> dict:
     fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
     if not (isinstance(fingerprint, str) and fingerprint):
         return _blocked(CD04)  # référentiel non gelé / fingerprint invalide -> fail-closed
+    # Ré-vérification RÉELLE du gel : recalculer le sha256 des canons et comparer.
+    # (Sinon un référentiel modifié gardant le même texte de fingerprint passerait.)
+    frozen_canons = referential.get("canons")
+    if not isinstance(frozen_canons, list) or _canon_fingerprint(frozen_canons) != fingerprint:
+        return _blocked(FINGERPRINT_MISMATCH)
 
     canons_selected = cd.get("canons_selected") or []
     uncanonized = cd.get("uncanonized") or []
@@ -183,23 +191,30 @@ def run_coherence_engine(envelope: dict) -> dict:
 
     # Autorisation LLM : jamais « à vide » (univers vide) — total_pairs > 0 requis.
     authorize = total_pairs > 0 and delta_phi >= DELTA_PHI_MIN
+    if authorize:
+        reason = "delta_phi>=seuil : 07 autorisé"
+    elif total_pairs == 0:
+        reason = "univers vide : rien à raisonner, 07 INTERDIT"
+    else:
+        reason = "delta_phi<seuil : 07 INTERDIT (veto ressource)"
     coherence = {
         "beta": BETA_V1,
         "delta_phi": delta_phi,
         "tension": tension,
         "sigma": sigma,
         "S": S,
+        "S_kind": "S_structural_v1",   # échelle [0,1] — NE PAS confondre avec le S général (>=6)
+        "S_range": [0.0, 1.0],
         "formula": CANONICAL_FORMULA,
         "resolved_pairs": resolved,
         "total_pairs": total_pairs,
         "conflicts": len(conflicts),
-        "referential_fingerprint": referential["fingerprint"],
+        "referential_fingerprint": fingerprint,
     }
     resource = {
         "authorize_llm": authorize,
         "delta_phi_min": DELTA_PHI_MIN,
-        "reason": ("delta_phi>=seuil : 07 autorisé" if authorize
-                   else "delta_phi<seuil : 07 INTERDIT (veto ressource)"),
+        "reason": reason,
         "resource_estimate_echo": cd.get("resource_estimate"),
     }
 

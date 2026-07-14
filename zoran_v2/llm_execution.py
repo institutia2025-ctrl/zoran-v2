@@ -67,6 +67,7 @@ _STEPS = (
     ("llm_request_build", "06_LLM_REQUEST_BUILD"),
 )
 NO_CLIENT = "07_LLM_EXECUTION_NO_CLIENT"
+CLIENT_ERROR = "07_LLM_CLIENT_ERROR"
 ORDER_KEY = "appel_llm_unique_sur_requete_06"
 
 OUTPUT_KEYS = (
@@ -111,12 +112,17 @@ def run_llm_execution(envelope: dict, llm_client=None) -> dict:
     if not callable(llm_client):
         return _blocked(NO_CLIENT)  # autorisé mais pas de client -> fail-closed
 
-    # Appel UNIQUE. Erreur du client -> fail-closed (pas de crash, pas de retry silencieux).
+    # Appel UNIQUE. Erreur du client -> fail-closed : status=BLOCKED (PAS un PASS déguisé),
+    # pour que 08+ ne prennent JAMAIS une panne LLM pour une porte réussie.
     try:
         response = llm_client(request)
     except Exception as exc:  # noqa: BLE001 — on isole toute défaillance backend
-        return _result(executed=False, response=None,
-                       error=f"{type(exc).__name__}: {exc}")
+        return {
+            "component": COMPONENT_ID, "version": VERSION,
+            "status": BLOCKED, "blocked_by": CLIENT_ERROR,
+            "executed": False, "response": None,
+            "error": f"{type(exc).__name__}: {exc}", "order_key": ORDER_KEY,
+        }
 
     return _result(executed=True, response=response, error=None)
 

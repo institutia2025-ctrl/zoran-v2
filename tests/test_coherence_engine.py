@@ -22,15 +22,20 @@ from zoran_v2.coherence_engine import (
     VERSION,
     run_coherence_engine,
 )
+from zoran_v2.canon_determination import _fingerprint as _canon_fp
 
 
-def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint="fp", re=None):
+def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint=None,
+        referential_canons=None, re=None):
+    rc = referential_canons or []
+    # Par défaut, fingerprint VALIDE (recalculé) ; passer fingerprint=... pour tester l'invalide.
+    fp = fingerprint if fingerprint is not None else _canon_fp(rc)
     return {
         "status": PASS,
         "canons_selected": canons_selected or [],
         "uncanonized": uncanonized or [],
         "conflicts": conflicts or [],
-        "canon_referential": {"fingerprint": fingerprint, "canons": [], "priorities": {}},
+        "canon_referential": {"fingerprint": fp, "canons": rc, "priorities": {}},
         "resource_estimate": re or {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
     }
 
@@ -211,6 +216,41 @@ def test_fingerprint_non_str_bloque():
     cd = _cd(fingerprint=123)
     v = run_coherence_engine(_env(cd=cd))
     assert v["status"] == BLOCKED and v["blocked_by"] == "04_CANON_DETERMINATION"
+
+
+def test_fingerprint_recalcule_et_compare():
+    # Audit total P0 : 05 doit RECALCULER le sha256 des canons et comparer, pas juste vérifier
+    # qu'une chaîne existe. Fingerprint valide en type mais ne correspondant pas -> BLOCKED.
+    from zoran_v2.coherence_engine import FINGERPRINT_MISMATCH
+    cd = _cd(referential_canons=[{"id": "C", "priority": 10,
+                                  "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}],
+             fingerprint="0000000000000000000000000000000000000000000000000000000000000000")
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == BLOCKED and v["blocked_by"] == FINGERPRINT_MISMATCH
+
+
+def test_fingerprint_valide_correspond_passe():
+    # Fingerprint recalculé cohérent avec les canons -> PASS (pas de faux blocage).
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    cd = _cd(canons_selected=[{"object_key": "k", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=canons)  # fingerprint recalculé automatiquement
+    oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
+
+
+def test_S_kind_structural_v1_declare():
+    # Audit total P2 : l'échelle S∈[0,1] doit être nommée pour ne pas la confondre avec S>=6.
+    v = run_coherence_engine(_env())
+    assert v["coherence"]["S_kind"] == "S_structural_v1"
+    assert v["coherence"]["S_range"] == [0.0, 1.0]
+
+
+def test_reason_univers_vide_correcte():
+    # Audit total P2 : motif de veto correct pour univers vide (pas "delta_phi<seuil").
+    v = run_coherence_engine(_env())
+    assert v["resource"]["authorize_llm"] is False
+    assert "univers vide" in v["resource"]["reason"]
 
 
 def test_sigma_inclut_objets_zero_canon():

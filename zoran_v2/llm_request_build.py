@@ -74,7 +74,7 @@ ORDER_KEY = "targets_par_object_key_puis_frame"
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
-    "authorized", "llm_request", "order_key",
+    "authorized", "llm_request", "object_id_map", "order_key",
 )
 
 
@@ -82,7 +82,8 @@ def _blocked(by: str) -> dict:
     return {
         "component": COMPONENT_ID, "version": VERSION,
         "status": BLOCKED, "blocked_by": by,
-        "authorized": False, "llm_request": None, "order_key": ORDER_KEY,
+        "authorized": False, "llm_request": None, "object_id_map": {},
+        "order_key": ORDER_KEY,
     }
 
 
@@ -105,7 +106,7 @@ def run_llm_request_build(envelope: dict) -> dict:
         return {
             "component": COMPONENT_ID, "version": VERSION,
             "status": PASS, "blocked_by": None,
-            "authorized": False, "llm_request": None,
+            "authorized": False, "llm_request": None, "object_id_map": {},
             "order_key": ORDER_KEY,
         }
 
@@ -128,9 +129,16 @@ def run_llm_request_build(envelope: dict) -> dict:
 
     # Cibles = paires RÉSOLUES (canonisées ET pourvues d'opérants) — déterministe, triées.
     pairs = sorted(set(canons_by_pair) & set(operants_by_pair))
+
+    # RULE-078 : object_key dérive du contenu utilisateur normalisé (01 : f"{kind}\x1f{normalized}").
+    # Il NE DOIT PAS partir au LLM. On attribue un identifiant OPAQUE déterministe (OBJ-0001…) ;
+    # la table de correspondance reste LOCALE (object_id_map), jamais envoyée (07 n'envoie que llm_request).
+    distinct_keys = sorted({ok for (ok, _fr) in pairs})
+    public_id = {ok: f"OBJ-{i + 1:04d}" for i, ok in enumerate(distinct_keys)}
+
     targets = [
         {
-            "object_key": ok,
+            "object_public_id": public_id[ok],
             "kind": kind_by_key.get(ok),
             "frame": fr,
             "canons": canons_by_pair[(ok, fr)],
@@ -146,13 +154,14 @@ def run_llm_request_build(envelope: dict) -> dict:
         "coherence_S": coherence.get("S"),
         "frames": sorted({fr for (_, fr) in pairs}),
         "targets": targets,
-        "pii_policy": "NO_RAW_USER_CONTENT_STRUCTURAL_ONLY",  # RULE-078 par construction
+        "pii_policy": "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT",  # RULE-078 réellement appliquée
     }
 
     return {
         "component": COMPONENT_ID, "version": VERSION,
         "status": PASS, "blocked_by": None,
         "authorized": True, "llm_request": llm_request,
+        "object_id_map": {pid: ok for ok, pid in public_id.items()},  # LOCAL, jamais au LLM
         "order_key": ORDER_KEY,
     }
 

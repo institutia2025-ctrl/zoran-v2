@@ -3,7 +3,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
-    branches: ["main"]
+    branches: ["integration/v2-canonical", "main"]
 
 jobs:
   test:

@@ -81,11 +81,15 @@ def test_client_manquant_alors_quautorise_bloque():
     assert v["executed"] is False
 
 
-def test_erreur_client_isolee_fail_closed():
+def test_erreur_client_fail_closed_status_blocked():
+    # Audit total P1 : une panne LLM ne doit PAS être présentée comme PASS aux portes suivantes.
+    from zoran_v2.llm_execution import CLIENT_ERROR
+
     def boom(req):
         raise RuntimeError("backend down")
     v = run_llm_execution(_env(), boom)
-    assert v["status"] == PASS and v["executed"] is False and v["response"] is None
+    assert v["status"] == BLOCKED and v["blocked_by"] == CLIENT_ERROR
+    assert v["executed"] is False and v["response"] is None
     assert "RuntimeError" in v["error"] and "backend down" in v["error"]
 
 

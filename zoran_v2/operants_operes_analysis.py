@@ -137,17 +137,23 @@ def run_operants_operes_analysis(envelope: dict, registry: list) -> dict:
 
 
 def _operants_from_yaml_obj(obj) -> list:
-    """Fail-closed : liste vide si YAML vide (None) ou top-level non-dict."""
-    return obj.get("operants", []) if isinstance(obj, dict) else []
+    """Fail-closed : [] si YAML vide/non-dict, ou si 'operants' n'est pas une liste."""
+    if not isinstance(obj, dict):
+        return []
+    operants = obj.get("operants")
+    return operants if isinstance(operants, list) else []
 
 
 def load_operant_registry(path=None) -> list:
-    """Partie IMPURE fine : charge le registre OPERANTS.yaml (fail-closed)."""
+    """Partie IMPURE fine : charge OPERANTS.yaml (FAIL-CLOSED : YAML invalide/fichier -> [])."""
     import yaml
     from pathlib import Path
     p = Path(path) if path else Path(__file__).resolve().parents[1] / "OPERANTS.yaml"
-    with open(p, encoding="utf-8") as f:
-        return _operants_from_yaml_obj(yaml.safe_load(f))
+    try:
+        with open(p, encoding="utf-8") as f:
+            return _operants_from_yaml_obj(yaml.safe_load(f))
+    except (yaml.YAMLError, OSError):
+        return []
 
 
 def main(envelope: dict) -> dict:
