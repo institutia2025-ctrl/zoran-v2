@@ -1,0 +1,33 @@
+# ── ZORAN GITHUB SEED — default-deny renforcé (rien de réel ne doit entrer) ──
+# Données réelles / PII (JAMAIS)
+data/
+uploads/
+memory/
+project_memory/
+conversations/
+*.db
+*.sqlite
+*.sqlite3
+*.jsonl
+render_prefs/
+# Secrets (JAMAIS)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secret*.txt
+api_keys_real*
+# Historique / clones / caches / artefacts
+.git_old/
+zoran_v2_sandbox/
+_baseline/
+observatory/out/
+reports/runtime_proofs/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+.tools/
+dist/
+build/
