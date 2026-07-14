@@ -80,6 +80,7 @@ OD01 = "01_OBJECT_DISCOVERY"
 FS02 = "02_ANALYSIS_FRAME_SELECTION"
 OA03 = "03_OPERANTS_OPERES_ANALYSIS"
 CD04 = "04_CANON_DETERMINATION"
+MALFORMED = "05_COHERENCE_ENGINE_MALFORMED_INPUT"
 ORDER_KEY = "coherence_globale_deterministe_puis_verdict_ressource"
 
 OUTPUT_KEYS = (
@@ -100,6 +101,19 @@ def _pair(entry_key, frame):
     return (entry_key, frame)
 
 
+def _keys_all_str(*lists) -> bool:
+    """True ssi tout object_key/frame des entrées est une str (hashable, bien formé).
+
+    Empêche un TypeError (object_key=liste -> unhashable) : entrée malformée -> fail-closed.
+    """
+    for lst in lists:
+        for e in lst:
+            if isinstance(e, dict):
+                if not (isinstance(e.get("object_key"), str) and isinstance(e.get("frame"), str)):
+                    return False
+    return True
+
+
 def run_coherence_engine(envelope: dict) -> dict:
     """Fonction PURE : envelope(00→04) -> cohérence S canonique + verdict ressource."""
     if not isinstance(envelope, dict):
@@ -114,19 +128,24 @@ def run_coherence_engine(envelope: dict) -> dict:
 
     cd = envelope["canon_determination"]
     referential = cd.get("canon_referential")
-    if not (isinstance(referential, dict) and referential.get("fingerprint")):
-        return _blocked(CD04)  # référentiel non gelé -> fail-closed
+    fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
+    if not (isinstance(fingerprint, str) and fingerprint):
+        return _blocked(CD04)  # référentiel non gelé / fingerprint invalide -> fail-closed
 
     canons_selected = cd.get("canons_selected") or []
     uncanonized = cd.get("uncanonized") or []
     conflicts = cd.get("conflicts") or []
-
     oa = envelope["operants_operes"]
+    analysis = oa.get("analysis") or []
+
+    # Entrée malformée (object_key/frame non-str -> non hashable) -> fail-closed, jamais un crash.
+    if not _keys_all_str(canons_selected, uncanonized, analysis):
+        return _blocked(MALFORMED)
+
     operant_pairs = {
         _pair(a.get("object_key"), a.get("frame"))
-        for a in (oa.get("analysis") or []) if isinstance(a, dict)
+        for a in analysis if isinstance(a, dict)
     }
-
     # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées).
     canonized_pairs = {
         _pair(c.get("object_key"), c.get("frame"))
@@ -136,7 +155,8 @@ def run_coherence_engine(envelope: dict) -> dict:
         _pair(u.get("object_key"), u.get("frame"))
         for u in uncanonized if isinstance(u, dict)
     }
-    total_pairs = len(canonized_pairs | uncanon_pairs)
+    universe = canonized_pairs | uncanon_pairs
+    total_pairs = len(universe)
 
     # ΔΦ = part des paires résolues (canonisées ET pourvues d'opérants).
     resolved = len(canonized_pairs & operant_pairs)
@@ -146,12 +166,14 @@ def run_coherence_engine(envelope: dict) -> dict:
     violations = 0
     tension = 0.0 if total_pairs == 0 else round((len(conflicts) + violations) / total_pairs, 6)
 
-    # σ = coefficient de variation du nombre de canons par objet.
-    canons_by_object: dict = {}
+    # σ = coefficient de variation du nombre de canons par objet, sur TOUS les objets
+    # de l'univers (un objet à 0 canon compte comme 0 -> dispersion non sous-estimée).
+    all_objects = {ok for (ok, _fr) in universe}
+    canons_by_object = {ok: set() for ok in all_objects}
     for c in canons_selected:
         if isinstance(c, dict):
             canons_by_object.setdefault(c.get("object_key"), set()).update(c.get("canons") or [])
-    counts = [len(v) for v in canons_by_object.values()]
+    counts = [len(canons_by_object[ok]) for ok in sorted(all_objects)]
     if len(counts) >= 2 and statistics.mean(counts) > 0:
         sigma = round(statistics.pstdev(counts) / statistics.mean(counts), 6)
     else:
@@ -159,7 +181,8 @@ def run_coherence_engine(envelope: dict) -> dict:
 
     S = round((BETA_V1 * delta_phi) / (1.0 + tension + sigma), 6)
 
-    authorize = delta_phi >= DELTA_PHI_MIN
+    # Autorisation LLM : jamais « à vide » (univers vide) — total_pairs > 0 requis.
+    authorize = total_pairs > 0 and delta_phi >= DELTA_PHI_MIN
     coherence = {
         "beta": BETA_V1,
         "delta_phi": delta_phi,
