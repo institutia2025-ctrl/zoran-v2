@@ -1,0 +1,16 @@
+# Registre déclaratif des opérants V1 (ratifié : 4 opérants génériques, non métier).
+# Source canonique, PAS un moteur. Applicabilité déterministe :
+#   frame ∈ applies_to_frames ET object.kind ∈ applies_to_kinds.
+operants:
+  - id: OP_DESCRIBE
+    applies_to_frames: [TEXT, CODE, UI, SYSTEM]
+    applies_to_kinds: [text, term, sentence, code, identifier, ui, component, system, service]
+  - id: OP_CLASSIFY
+    applies_to_frames: [TEXT, CODE, UI, SYSTEM]
+    applies_to_kinds: [text, term, code, identifier, ui, component, system, service, config]
+  - id: OP_RELATE
+    applies_to_frames: [CODE, UI, SYSTEM]
+    applies_to_kinds: [code, identifier, module, ui, component, system, service]
+  - id: OP_CONSTRAIN
+    applies_to_frames: [CODE, SYSTEM]
+    applies_to_kinds: [code, function, system, service, config, port]

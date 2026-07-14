@@ -8,3 +8,5 @@ sources:
     title: Porte 1 — découverte structurée des objets
   - id: SPEC_ENGINE_02_ANALYSIS_FRAME_SELECTION
     title: Porte 2 — sélection déterministe des cadres d'analyse
+  - id: SPEC_ENGINE_03_OPERANTS_OPERES_ANALYSIS
+    title: Porte 3 — analyse déterministe opérants/opérés dans les cadres
