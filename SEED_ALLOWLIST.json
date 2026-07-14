@@ -1,0 +1,122 @@
+{
+  "object_id": "ZORAN-V2-GITHUB-SEED-ALLOWLIST",
+  "mission": "TX_ZORAN_GITHUB_SEED_P0_V2",
+  "principe": "default-deny : aucun fichier hors cette liste n'entre dans la graine",
+  "source_canonique": true,
+  "note_manifest": "SEED_MANIFEST.md supprime du commit candidat (une seule source d'inventaire)",
+  "base_sha": "e9d117fe9b3033dd303a38911e4cee92f5fca569",
+  "candidate_sha": "produit_post_commit_voir_preuve",
+  "n_files": 11,
+  "files": [
+    {
+      "path": ".gitignore",
+      "role": "exclusions defensives",
+      "origin": "redige_claude",
+      "sha256": "f6316e4746756ce51787d979d5c0fe523592ea6ef9b79cdddb9f281fc408f7db",
+      "justification": "bloquer ajouts futurs data/secrets",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": ".env.example",
+      "role": "gabarit variables env",
+      "origin": "redige_claude",
+      "sha256": "962ea1c85efb9b81e3d8762ad439b11265464f914624c6e3178fad10b55108c9",
+      "justification": "montrer variables sans valeur reelle",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "README.md",
+      "role": "doc + provenance",
+      "origin": "redige_claude",
+      "sha256": "091d59cfbe73a46e63bef8e574030332576c353217352e7e56c830d211fc6121",
+      "justification": "contexte du cycle GitHub/Codespaces",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "requirements-dev.txt",
+      "role": "dependance test",
+      "origin": "redige_claude",
+      "sha256": "9db10e06e59f5c4aa47b067bff5563aae75f66967b41a3811337bc181d6564a6",
+      "justification": "pytest pour CI",
+      "dependance": "pytest",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "role": "CI GitHub Actions",
+      "origin": "redige_claude",
+      "sha256": "3a9f07447cbb2347a84199658990278e572a3bdf03ae505430b6833f74eec822",
+      "justification": "prouver le cycle Actions sous Python 3.13",
+      "dependance": "actions/setup-python",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "zoran_v2/__init__.py",
+      "role": "package moteur (squelette)",
+      "origin": "redige_claude",
+      "sha256": "e65a140f51dbb9d45507a299b29a87be401b66de8ed6432a89e30e3339173629",
+      "justification": "squelette minimal du futur moteur",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "zoran_v2/_cycle_probe.py",
+      "role": "sonde de cycle",
+      "origin": "redige_claude",
+      "sha256": "a8dd6de82fd94543ab2ee165a3a46d05bccade85424a404b090bfab7239eeb2d",
+      "justification": "objet trivial deterministe (pas de moteur)",
+      "dependance": "stdlib.sys",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "tests/test_cycle_probe.py",
+      "role": "test deterministe",
+      "origin": "redige_claude",
+      "sha256": "8609bc590663a1d39e5a527c603b0ad248e2f2b804072da53c6d56f17de00f36",
+      "justification": "falsifiabilite + condition Python<3.14",
+      "dependance": "pytest; zoran_v2._cycle_probe",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "SEED_EXCLUSIONS.md",
+      "role": "doc exclusions",
+      "origin": "redige_claude",
+      "sha256": "31eae833a599c5fd3e8458379ee50df30a9be60c8dc938544a5c5a2dc6df633e",
+      "justification": "tracer ce qui est banni de la graine",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "ZORAN_GITHUB_SEED_INDEX.md",
+      "role": "tableau de bord double-controle",
+      "origin": "redige_claude",
+      "sha256": "266d23a65ff4e878b9bc96e10e7b945deb083ff56a69c83c19e0159eaa7dece3",
+      "justification": "claims P0-001..P0-020",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    },
+    {
+      "path": "SEED_ALLOWLIST.json",
+      "role": "source canonique d'inventaire",
+      "origin": "redige_claude",
+      "sha256": "self:computed_post_write (voir sha256sum brut en preuve)",
+      "justification": "default-deny : rien hors cette liste",
+      "dependance": "aucune",
+      "claude_status": "DECLARE_CONSTRUIT",
+      "codex_status": ""
+    }
+  ]
+}
