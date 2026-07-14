@@ -15,3 +15,8 @@ forbidden:
       - generate_three_prechoices
       - llm_prechoice_routes
       - THREE_ROUTES_PRECHOICE
+    # forbidden_patterns : regex (couvrent les variantes d'espacement).
+    # Marqueur historique central du problème multi-candidat.
+    forbidden_patterns:
+      - 'n_candidates\s*=\s*3'
+      - 'n_prechoices\s*=\s*3'
