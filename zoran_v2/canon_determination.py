@@ -13,6 +13,12 @@ signalée dans `conflicts` (jamais écrasée en silence). Aucun canon n'est inve
 (⊆ registre). NE calcule AUCUNE cohérence (→ 05), n'applique aucun opérant (→ 05),
 ne score pas, ne construit aucune requête LLM (→ 06), n'appelle pas de LLM.
 Structuré-only, immuable, fail-closed.
+
+Robustesse (audit indépendant 2026-07-14) :
+- registre normalisé/dédupliqué DÉTERMINISTIQUEMENT par `id` (indépendant de
+  l'ordre, même en cas de doublon d'id à priorités différentes) ;
+- `fingerprint` calculé sur les RECORDS COMPLETS gelés (id + priorité + applies_to) ;
+- chargement YAML FAIL-CLOSED (YAML invalide → registre vide, jamais un crash).
 """
 from __future__ import annotations
 
@@ -37,18 +43,19 @@ GOVERNANCE = {
         "NO_LLM",
         "NO_NETWORK",
         "NO_MEMORY",
+        "DETERMINISTIC_REGISTRY_NORMALIZATION",
         "FROZEN_REFERENTIAL_FINGERPRINT",
         "CONFLICT_LISTED_NEVER_SILENT",
         "FAIL_CLOSED",
         "DETERMINISTIC",
         "IMMUTABLE_SNAPSHOT",
     ],
-    "TRACEABILITY": "canons_selected + conflicts + uncanonized explicites ; fingerprint sha256 ; SHA git ; run CI",
+    "TRACEABILITY": "canons_selected + conflicts + uncanonized explicites ; fingerprint sha256 sur records complets ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions + fingerprint du referentiel",
     "ALERTE": "status=BLOCKED si 00/01/02/03 != PASS ; uncanonized pour toute paire sans canon ; conflicts pour egalite de priorite",
-    "ANTI_REGRESSION": "tests non-invention + fail-closed + determinisme + fingerprint stable + conflit liste + gouvernance ; gate CI",
+    "ANTI_REGRESSION": "tests non-invention + fail-closed + determinisme (dont dedup id ordre-independant) + fingerprint complet + conflit liste + loader YAML fail-closed + gouvernance ; gate CI",
 }
 
 GOVERNANCE_REQUIRED_KEYS = (
@@ -61,7 +68,7 @@ PROVENANCE_DECL = {
     "SOURCE_TYPE": "new",
     "CANONICAL_SPEC": "SPEC_ENGINE_04_CANON_DETERMINATION",
     "SOURCE_SHA": None,
-    "RETAINED_BEHAVIOR": "determination deterministe des canons applicables par appartenance (frame+kind) + gel du referentiel avec fingerprint",
+    "RETAINED_BEHAVIOR": "determination deterministe des canons applicables par appartenance (frame+kind) + gel du referentiel avec fingerprint complet",
     "REJECTED_BEHAVIOR": "calcul de coherence, execution d'operant, scoring, requete LLM, invention de canon, modification du referentiel apres emission",
     "LEGACY_CHECK": "aucun comportement du registre FORBIDDEN reintroduit",
     "BEHAVIOR_FLAGS": {"requests_llm_prechoices": False},
@@ -81,47 +88,78 @@ OUTPUT_KEYS = (
     "uncanonized", "resource_estimate", "order_key",
 )
 
-_EMPTY_REFERENTIAL = {
-    "fingerprint": hashlib.sha256(b"[]").hexdigest(),
-    "canons": [],
-    "priorities": {},
-}
+
+def _fingerprint(frozen_canons: list) -> str:
+    """Empreinte déterministe du référentiel gelé (sha256 des RECORDS COMPLETS triés)."""
+    ordered = sorted(frozen_canons, key=lambda c: c["id"])
+    payload = json.dumps(ordered, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+_EMPTY_FINGERPRINT = _fingerprint([])
+
+
+def _empty_referential() -> dict:
+    return {"fingerprint": _EMPTY_FINGERPRINT, "canons": [], "priorities": {}}
 
 
 def _blocked(by: str) -> dict:
     return {
         "component": COMPONENT_ID, "version": VERSION,
         "status": BLOCKED, "blocked_by": by,
-        "canons_selected": [], "canon_referential": dict(_EMPTY_REFERENTIAL),
+        "canons_selected": [], "canon_referential": _empty_referential(),
         "conflicts": [], "uncanonized": [],
         "resource_estimate": {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
         "order_key": ORDER_KEY,
     }
 
 
-def _applicable_canons(frame, kind, registry) -> list:
-    """Canons du REGISTRE applicables à (frame, kind), triés priorité desc puis id.
+def _norm_str_list(xs) -> list:
+    return sorted({x for x in xs if isinstance(x, str)})
 
-    Dédup par id, ⊆ registre. Canon malformé (non-dict, sans id, applies_to non-liste,
-    priority non-entière) → ignoré (fail-closed), jamais un crash.
+
+def _clean_canon(c) -> dict | None:
+    """Valide + normalise un canon. None si malformé (fail-closed)."""
+    if not isinstance(c, dict) or "id" not in c:
+        return None
+    frames = c.get("applies_to_frames")
+    kinds = c.get("applies_to_kinds")
+    prio = c.get("priority")
+    if not (isinstance(frames, list) and isinstance(kinds, list)):
+        return None
+    if isinstance(prio, bool) or not isinstance(prio, int):
+        return None
+    return {
+        "id": c["id"],
+        "priority": prio,
+        "applies_to_frames": _norm_str_list(frames),
+        "applies_to_kinds": _norm_str_list(kinds),
+    }
+
+
+def _normalize_registry(registry: list) -> list:
+    """Dédup DÉTERMINISTE par id (indépendant de l'ordre) + validation fail-closed.
+
+    Doublon d'id : on garde le record au (priorité max ; à égalité, JSON trié max)
+    — résolution stable, jamais dépendante de l'ordre du registre.
     """
-    seen: dict = {}
+    best: dict = {}
     for c in registry:
-        if not isinstance(c, dict) or "id" not in c:
+        rec = _clean_canon(c)
+        if rec is None:
             continue
-        frames = c.get("applies_to_frames")
-        kinds = c.get("applies_to_kinds")
-        prio = c.get("priority")
-        if not (isinstance(frames, list) and isinstance(kinds, list)):
-            continue
-        if isinstance(prio, bool) or not isinstance(prio, int):
-            continue
-        if frame in frames and kind in kinds:
-            seen[c["id"]] = prio
-    return sorted(
-        ({"id": cid, "priority": prio} for cid, prio in seen.items()),
-        key=lambda x: (-x["priority"], x["id"]),
-    )
+        key = (rec["priority"], json.dumps(rec, sort_keys=True, ensure_ascii=False))
+        cur = best.get(rec["id"])
+        if cur is None or key > cur[0]:
+            best[rec["id"]] = (key, rec)
+    return [best[i][1] for i in sorted(best)]
+
+
+def _applicable_canons(frame, kind, norm_registry) -> list:
+    """Records du registre NORMALISÉ applicables à (frame, kind), triés priorité desc puis id."""
+    out = [c for c in norm_registry
+           if frame in c["applies_to_frames"] and kind in c["applies_to_kinds"]]
+    return sorted(out, key=lambda c: (-c["priority"], c["id"]))
 
 
 def _conflicts_for(key, frame, apps) -> list:
@@ -141,13 +179,6 @@ def _conflicts_for(key, frame, apps) -> list:
                 "priority": prio, "canons": sorted(ids),
             })
     return out
-
-
-def _fingerprint(priorities: dict) -> str:
-    """Empreinte déterministe du référentiel gelé (sha256 des (id, priorité) triés)."""
-    payload = json.dumps(sorted(priorities.items()), separators=(",", ":"),
-                         ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def run_canon_determination(envelope: dict, registry: list) -> dict:
@@ -170,6 +201,8 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
     if not (isinstance(oa, dict) and oa.get("status") == PASS):
         return _blocked(OA03)
 
+    norm_registry = _normalize_registry(registry)
+
     kind_by_key = {
         o.get("object_key"): o.get("kind")
         for o in (od.get("objects") or []) if isinstance(o, dict)
@@ -178,7 +211,7 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
     canons_selected = []
     conflicts = []
     uncanonized = []
-    priorities: dict = {}
+    frozen: dict = {}          # id -> record complet gelé
     objects_seen = set()
     frames_seen = set()
     pairs = 0
@@ -192,7 +225,7 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
         for frame in (entry.get("frames") or []):
             pairs += 1
             frames_seen.add(frame)
-            apps = _applicable_canons(frame, kind, registry)
+            apps = _applicable_canons(frame, kind, norm_registry)
             if apps:
                 canons_selected.append({
                     "object_key": key, "frame": frame,
@@ -200,20 +233,21 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
                 })
                 conflicts.extend(_conflicts_for(key, frame, apps))
                 for a in apps:
-                    priorities[a["id"]] = a["priority"]
+                    frozen[a["id"]] = a
             else:
                 uncanonized.append({"object_key": key, "frame": frame})
 
+    frozen_list = [frozen[i] for i in sorted(frozen)]
     canon_referential = {
-        "fingerprint": _fingerprint(priorities),
-        "canons": sorted(priorities),
-        "priorities": dict(sorted(priorities.items())),
+        "fingerprint": _fingerprint(frozen_list),
+        "canons": frozen_list,   # RECORDS COMPLETS (id + priorité + applies_to) — fingerprint complet
+        "priorities": {c["id"]: c["priority"] for c in frozen_list},
     }
     resource_estimate = {
         "objects": len(objects_seen),
         "frames": len(frames_seen),
         "pairs": pairs,
-        "canons_applied": len(priorities),
+        "canons_applied": len(frozen_list),
     }
 
     return {
@@ -234,12 +268,18 @@ def _canons_from_yaml_obj(obj) -> list:
 
 
 def load_canon_registry(path=None) -> list:
-    """Partie IMPURE fine : charge le registre CANONS.yaml (fail-closed)."""
+    """Partie IMPURE fine : charge le registre CANONS.yaml (FAIL-CLOSED).
+
+    YAML invalide (erreur de parse) ou fichier illisible → registre VIDE, jamais un crash.
+    """
     import yaml
     from pathlib import Path
     p = Path(path) if path else Path(__file__).resolve().parents[1] / "CANONS.yaml"
-    with open(p, encoding="utf-8") as f:
-        return _canons_from_yaml_obj(yaml.safe_load(f))
+    try:
+        with open(p, encoding="utf-8") as f:
+            return _canons_from_yaml_obj(yaml.safe_load(f))
+    except (yaml.YAMLError, OSError):
+        return []
 
 
 def main(envelope: dict) -> dict:

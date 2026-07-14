@@ -1,8 +1,9 @@
 """Tests déterministes de 04_CANON_DETERMINATION (registre + objets injectés).
 
 Cas de MALFORMATION du registre (id dupliqué, applies_to non-liste, priority
-non-entière, sans id) et de CONFLIT (égalité de priorité) bakés dès le départ
-— pré-ship adversarial self-audit (leçon d'engine-02/03).
+non-entière, sans id), CONFLIT (égalité de priorité), et RÉGRESSIONS de l'audit
+indépendant 2026-07-14 : dédup id ordre-indépendant, YAML fail-closed,
+fingerprint complet (couvre applies_to).
 """
 import copy
 
@@ -32,6 +33,10 @@ REG = [
 ]
 
 
+def _ids(v):
+    return [c["id"] for c in v["canon_referential"]["canons"]]
+
+
 def _env(objects=None, ofm=None, rc="PASS", od="PASS", fs="PASS", oa="PASS"):
     return {
         "runtime_check": {"status": rc},
@@ -50,7 +55,6 @@ def _ofm(key, frames):
 
 
 def test_determination_nominale_priorite_desc():
-    # objet code sur cadre CODE : CONSTRAINT(40) puis STRUCTURE(30), trié par priorité desc.
     v = run_canon_determination(
         _env(objects=[_obj("k1", "code")], ofm=[_ofm("k1", ["CODE"])]), REG)
     assert v["status"] == PASS and v["blocked_by"] is None
@@ -60,7 +64,7 @@ def test_determination_nominale_priorite_desc():
     }]
     assert v["conflicts"] == []
     assert v["uncanonized"] == []
-    assert v["canon_referential"]["canons"] == ["CANON_CONSTRAINT", "CANON_STRUCTURE"]
+    assert _ids(v) == ["CANON_CONSTRAINT", "CANON_STRUCTURE"]
     assert v["canon_referential"]["priorities"] == {"CANON_CONSTRAINT": 40, "CANON_STRUCTURE": 30}
     assert v["component"] == COMPONENT_ID and v["version"] == VERSION
 
@@ -98,7 +102,6 @@ def test_blocked_referential_est_vide_et_stable():
 
 
 def test_uncanonized_si_aucun_canon():
-    # kind "ui" sur cadre "UI" : INTENT matche UI+ui -> canonisé ; kind "ui" sur "CODE" -> aucun.
     v = run_canon_determination(
         _env(objects=[_obj("k1", "ui")], ofm=[_ofm("k1", ["CODE"])]), REG)
     assert v["canons_selected"] == []
@@ -112,18 +115,16 @@ def test_non_invention_canons_sous_ensemble_registre():
              ofm=[_ofm("k1", ["CODE"]), _ofm("k2", ["TEXT"])]), REG)
     for a in v["canons_selected"]:
         assert set(a["canons"]) <= known
-    assert set(v["canon_referential"]["canons"]) <= known
+    assert set(_ids(v)) <= known
 
 
 def test_conflit_egalite_priorite_liste_jamais_ecrase():
-    # Deux canons applicables de MÊME priorité -> conflit listé, aucun canon perdu.
     reg = [
         {"id": "CANON_B", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 50},
         {"id": "CANON_A", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 50},
     ]
     v = run_canon_determination(
         _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])]), reg)
-    # ordonné par id (égalité de priorité) — aucun écrasé
     assert v["canons_selected"][0]["canons"] == ["CANON_A", "CANON_B"]
     assert v["conflicts"] == [{
         "object_key": "k", "frame": "CODE", "priority": 50,
@@ -134,7 +135,7 @@ def test_conflit_egalite_priorite_liste_jamais_ecrase():
 def test_priorites_differentes_pas_de_conflit():
     v = run_canon_determination(
         _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])]), REG)
-    assert v["conflicts"] == []  # 40 != 30
+    assert v["conflicts"] == []
 
 
 def test_dedup_canon_registre_duplique():
@@ -145,7 +146,20 @@ def test_dedup_canon_registre_duplique():
     v = run_canon_determination(
         _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])]), reg)
     assert v["canons_selected"][0]["canons"] == ["CANON_X"]
-    assert v["conflicts"] == []  # un seul id après dédup -> pas de conflit
+    assert v["conflicts"] == []
+
+
+def test_dup_id_priorites_differentes_DETERMINISTE_ordre_independant():
+    # RÉGRESSION (audit Codex 2026-07-14, constat 2) : doublon d'id à priorités
+    # différentes NE DOIT PLUS dépendre de l'ordre du registre.
+    a = {"id": "CANON_X", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10}
+    b = {"id": "CANON_X", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 20}
+    env = _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])])
+    v1 = run_canon_determination(env, [a, b])
+    v2 = run_canon_determination(env, [b, a])
+    assert v1 == v2  # ordre-indépendant
+    # priorité max déterministe conservée (20)
+    assert v1["canon_referential"]["priorities"]["CANON_X"] == 20
 
 
 def test_applies_non_liste_ignore():
@@ -161,7 +175,7 @@ def test_priority_non_entiere_ignore():
            {"id": "CANON_B", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": True}]
     v = run_canon_determination(
         _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])]), reg)
-    assert v["canons_selected"] == []  # priority str et bool -> ignorés
+    assert v["canons_selected"] == []
     assert v["uncanonized"] == [{"object_key": "k", "frame": "CODE"}]
 
 
@@ -188,15 +202,29 @@ def test_fingerprint_deterministe_et_stable():
     e = _env(objects=[_obj("k1", "code")], ofm=[_ofm("k1", ["CODE"])])
     f1 = run_canon_determination(e, REG)["canon_referential"]["fingerprint"]
     f2 = run_canon_determination(e, REG)["canon_referential"]["fingerprint"]
-    assert f1 == f2  # déterministe
-    # stable : mêmes canons/priorités -> même hash, indépendant de l'ordre d'insertion
-    assert _fingerprint({"CANON_CONSTRAINT": 40, "CANON_STRUCTURE": 30}) == \
-           _fingerprint({"CANON_STRUCTURE": 30, "CANON_CONSTRAINT": 40})
+    assert f1 == f2
+    rec = lambda i, p: {"id": i, "priority": p, "applies_to_frames": [], "applies_to_kinds": []}
+    # stable : ordre d'insertion indifférent (le fingerprint trie par id)
+    assert _fingerprint([rec("A", 1), rec("B", 2)]) == _fingerprint([rec("B", 2), rec("A", 1)])
 
 
-def test_fingerprint_change_si_referentiel_change():
-    assert _fingerprint({"CANON_STRUCTURE": 30}) != _fingerprint({"CANON_STRUCTURE": 31})
-    assert _fingerprint({}) != _fingerprint({"CANON_STRUCTURE": 30})
+def test_fingerprint_change_si_priorite_change():
+    rec = lambda i, p, k=(): {"id": i, "priority": p, "applies_to_frames": [], "applies_to_kinds": list(k)}
+    assert _fingerprint([rec("S", 30)]) != _fingerprint([rec("S", 31)])
+    assert _fingerprint([]) != _fingerprint([rec("S", 30)])
+
+
+def test_fingerprint_couvre_applies_to_COMPLET():
+    # RÉGRESSION (audit Codex 2026-07-14, constat 3) : le fingerprint doit couvrir
+    # les applies_to, pas seulement id+priorité. Même sélection, applies_to différents
+    # -> référentiel gelé différent -> fingerprint différent.
+    env = _env(objects=[_obj("k", "code")], ofm=[_ofm("k", ["CODE"])])
+    reg1 = [{"id": "C", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"], "priority": 10}]
+    reg2 = [{"id": "C", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code", "text"], "priority": 10}]
+    v1 = run_canon_determination(env, reg1)
+    v2 = run_canon_determination(env, reg2)
+    assert _ids(v1) == _ids(v2) == ["C"]  # même canon sélectionné
+    assert v1["canon_referential"]["fingerprint"] != v2["canon_referential"]["fingerprint"]
 
 
 def test_resource_estimate_compte_sans_budget():
@@ -243,16 +271,25 @@ def test_provenance_decl_conforme():
 
 def test_load_canon_registry_fail_closed():
     from zoran_v2.canon_determination import _canons_from_yaml_obj
-    assert _canons_from_yaml_obj(None) == []           # YAML vide
-    assert _canons_from_yaml_obj("scalaire") == []     # scalaire (string)
-    assert _canons_from_yaml_obj(42) == []             # scalaire (nombre)
-    assert _canons_from_yaml_obj([1, 2]) == []         # liste top-level
-    assert _canons_from_yaml_obj({"autre": 1}) == []   # clé absente
+    assert _canons_from_yaml_obj(None) == []
+    assert _canons_from_yaml_obj("scalaire") == []
+    assert _canons_from_yaml_obj(42) == []
+    assert _canons_from_yaml_obj([1, 2]) == []
+    assert _canons_from_yaml_obj({"autre": 1}) == []
     assert _canons_from_yaml_obj({"canons": [{"id": "CANON_X"}]}) == [{"id": "CANON_X"}]
 
 
+def test_load_canon_registry_yaml_invalide_fail_closed(tmp_path):
+    # RÉGRESSION (audit Codex 2026-07-14, constat 1) : YAML invalide -> [] (pas de crash).
+    from zoran_v2.canon_determination import load_canon_registry
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("canons: [unclosed\n  - id: X\n :::not yaml", encoding="utf-8")
+    assert load_canon_registry(str(bad)) == []
+    missing = tmp_path / "nope.yaml"
+    assert load_canon_registry(str(missing)) == []  # fichier absent -> []
+
+
 def test_registre_reel_charge_et_applique():
-    # Le vrai CANONS.yaml se charge et produit un référentiel cohérent avec V1.
     from zoran_v2.canon_determination import load_canon_registry
     reg = load_canon_registry()
     ids = {c["id"] for c in reg}
@@ -260,4 +297,4 @@ def test_registre_reel_charge_et_applique():
     v = run_canon_determination(
         _env(objects=[_obj("k1", "code")], ofm=[_ofm("k1", ["CODE"])]), reg)
     assert v["status"] == PASS
-    assert "CANON_STRUCTURE" in v["canon_referential"]["canons"]
+    assert "CANON_STRUCTURE" in _ids(v)
