@@ -1,0 +1,19 @@
+# Registre déclaratif des canons V1 (ratifié : 3 canons génériques, non métier).
+# Source canonique, PAS un moteur. Un canon = référentiel normatif applicable.
+# Applicabilité déterministe :
+#   frame ∈ applies_to_frames ET object.kind ∈ applies_to_kinds.
+# priority : entier ; le plus haut prime ; égalité tranchée par id (alpha) ET signalée
+# comme conflit (jamais écrasée en silence). 04 NE calcule AUCUNE cohérence (→ 05).
+canons:
+  - id: CANON_CONSTRAINT
+    applies_to_frames: [SYSTEM, CODE]
+    applies_to_kinds: [system, service, config, port, code, function]
+    priority: 40
+  - id: CANON_STRUCTURE
+    applies_to_frames: [CODE, SYSTEM]
+    applies_to_kinds: [code, identifier, function, module, system, service, config, port]
+    priority: 30
+  - id: CANON_INTENT
+    applies_to_frames: [TEXT, UI]
+    applies_to_kinds: [text, term, sentence, ui, component]
+    priority: 20
