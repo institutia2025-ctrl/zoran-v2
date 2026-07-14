@@ -9,7 +9,7 @@ Mission : **TX_ZORAN_GITHUB_SEED_P0_V2** · Statut : `SEED_CANDIDATE_LOCAL_CREAT
 | ID | Contrôle | Claude | Preuve Claude | Codex | Verdict Codex | Preuve Codex |
 |----|----------|:------:|---------------|:-----:|---------------|--------------|
 | P0-001 | Dossier distinct du dépôt historique | [x] | graine hors arbre du dépôt de prod (répertoire séparé) | [ ] | | |
-| P0-002 | Aucun ancien `.git` copié | [x] | historique neuf = **2 commits propres** (racine + candidat) ; racine `rev-list --parents` = 0 parent ; aucun `.git` de production importé | [ ] | | |
+| P0-002 | Aucun ancien `.git` copié | [x] | **invariant** : historique local neuf ; commit racine `rev-list --parents -n1` = **0 parent** ; aucune ref/`.git` de production importée. (Le *nombre* de commits = fait mutable → tenu dans le registre externe, jamais figé ici pour éviter l'auto-référence.) | [ ] | | |
 | P0-003 | Allowlist == fichiers présents | [x] | `git ls-tree -r HEAD` == entrées `SEED_ALLOWLIST.json` | [ ] | | |
 | P0-004 | Aucune donnée utilisateur réelle | [x] | 0 `data/`/`memory/`/conversations tracké ; scan raw joint | [ ] | | |
 | P0-005 | Aucun SQLite réel | [x] | 0 `*.db`/`*.sqlite*` (find, raw joint) | [ ] | | |

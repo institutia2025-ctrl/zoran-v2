@@ -103,7 +103,7 @@
       "path": "ZORAN_GITHUB_SEED_INDEX.md",
       "role": "tableau de bord double-controle",
       "origin": "redige_claude",
-      "sha256": "a802f7a2d45a9e427943254cacb812b72d40e002d884b439709b14c835a8ad1e",
+      "sha256": "cbeab01523f7a5256caa85be0df3688744ffa4153eae828b210d195af2a80200",
       "justification": "claims P0-001..P0-020",
       "dependance": "aucune",
       "claude_status": "DECLARE_CONSTRUIT",
