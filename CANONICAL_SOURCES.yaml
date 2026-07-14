@@ -12,3 +12,5 @@ sources:
     title: Porte 3 — analyse déterministe opérants/opérés dans les cadres
   - id: SPEC_ENGINE_04_CANON_DETERMINATION
     title: Porte 4 — détermination déterministe des canons + gel du référentiel
+  - id: SPEC_ENGINE_05_COHERENCE_ENGINE
+    title: Porte 5 — moteur de cohérence (1re passe) S canonique + verdict ressource
