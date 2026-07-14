@@ -8,6 +8,7 @@ from zoran_v2.object_discovery import (
     COMPONENT_ID,
     GOVERNANCE,
     GOVERNANCE_REQUIRED_KEYS,
+    ORDER_KEY,
     PASS,
     VERSION,
     run_object_discovery,
@@ -61,10 +62,11 @@ def test_candidat_structured_ok():
 
 
 def test_drop_missing_kind():
-    v = run_object_discovery(_env(
-        object_candidates=[{"value": "z", "provenance": {"structured": True}}]))
+    cand = {"value": "z", "provenance": {"structured": True}}
+    v = run_object_discovery(_env(object_candidates=[cand]))
     assert v["count"] == 0
-    assert v["dropped"] == [{"candidate_index": 0, "reason": "missing_kind"}]
+    # Conforme au contrat : dropped réémet le candidat + son index + la raison.
+    assert v["dropped"] == [{"candidate_index": 0, "candidate": cand, "reason": "missing_kind"}]
 
 
 def test_drop_value_non_normalizable():
@@ -144,6 +146,20 @@ def test_typeerror_envelope_non_dict():
 def test_typeerror_candidates_non_liste():
     with pytest.raises(TypeError):
         run_object_discovery(_env(object_candidates="pas une liste"))
+
+
+def test_order_key_present_pass_et_blocked():
+    # order_key présent et stable dans les deux modes (schéma de sortie uniforme).
+    assert run_object_discovery(_env())["order_key"] == ORDER_KEY
+    assert run_object_discovery({"object_candidates": []})["order_key"] == ORDER_KEY
+
+
+def test_dropped_contient_le_candidat():
+    cand = {"kind": "term", "value": "a"}  # provenance absente -> dropped
+    v = run_object_discovery(_env(object_candidates=[cand]))
+    assert v["dropped"][0]["candidate"] == cand
+    assert v["dropped"][0]["candidate_index"] == 0
+    assert v["dropped"][0]["reason"] == "provenance_unverified"
 
 
 def test_gouvernance_contrat_complet():

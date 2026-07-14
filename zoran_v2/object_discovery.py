@@ -48,6 +48,8 @@ PASS = "PASS"
 BLOCKED = "BLOCKED"
 RC00 = "00_RUNTIME_CHECK"
 _SEP = "\x1f"  # séparateur de clé, non typable dans du texte normal
+# Description stable de l'ordre déterministe (exposée dans la sortie, cf. contrat).
+ORDER_KEY = "in_text.offset(1re_occurrence)_puis_object_key"
 
 
 def _normalize(value):
@@ -99,7 +101,7 @@ def run_object_discovery(envelope: dict) -> dict:
         return {
             "component": COMPONENT_ID, "version": VERSION,
             "status": BLOCKED, "blocked_by": RC00,
-            "objects": [], "count": 0, "dropped": [],
+            "objects": [], "count": 0, "dropped": [], "order_key": ORDER_KEY,
         }
 
     input_text = envelope.get("input_text")
@@ -112,21 +114,25 @@ def run_object_discovery(envelope: dict) -> dict:
     dropped: list[dict] = []
     by_key: dict[str, dict] = {}
 
+    def _drop(idx, candidate, reason):
+        # Conforme au contrat : on réémet le candidat rejeté (+ son index, traçabilité).
+        dropped.append({"candidate_index": idx, "candidate": candidate, "reason": reason})
+
     for i, cand in enumerate(candidates):
         if not isinstance(cand, dict):
-            dropped.append({"candidate_index": i, "reason": "not_a_dict"})
+            _drop(i, cand, "not_a_dict")
             continue
         kind = cand.get("kind")
         if not (isinstance(kind, str) and kind.strip()):
-            dropped.append({"candidate_index": i, "reason": "missing_kind"})
+            _drop(i, cand, "missing_kind")
             continue
         normalized = _normalize(cand.get("value"))
         if normalized is None:
-            dropped.append({"candidate_index": i, "reason": "value_not_normalizable"})
+            _drop(i, cand, "value_not_normalizable")
             continue
         prov = _verify_provenance(cand, input_text)
         if prov is None:
-            dropped.append({"candidate_index": i, "reason": "provenance_unverified"})
+            _drop(i, cand, "provenance_unverified")
             continue
 
         key = f"{kind.strip()}{_SEP}{normalized}"
@@ -155,4 +161,5 @@ def run_object_discovery(envelope: dict) -> dict:
         "component": COMPONENT_ID, "version": VERSION,
         "status": PASS, "blocked_by": None,
         "objects": objects, "count": len(objects), "dropped": dropped,
+        "order_key": ORDER_KEY,
     }
