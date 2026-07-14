@@ -44,6 +44,17 @@ GOVERNANCE_REQUIRED_KEYS = (
     "ANTI_REGRESSION",
 )
 
+# --- Déclaration de provenance (gate anti-résurrection) — métadonnée pure ---
+PROVENANCE_DECL = {
+    "SOURCE_TYPE": "new",
+    "CANONICAL_SPEC": "SPEC_ENGINE_01_OBJECT_DISCOVERY",
+    "SOURCE_SHA": None,
+    "RETAINED_BEHAVIOR": "decouverte structuree-only, fail-closed, dedup deterministe",
+    "REJECTED_BEHAVIOR": "extraction NLP/texte libre ; invention d'objets",
+    "LEGACY_CHECK": "aucun comportement du registre FORBIDDEN reintroduit",
+    "BEHAVIOR_FLAGS": {"requests_llm_prechoices": False},
+}
+
 PASS = "PASS"
 BLOCKED = "BLOCKED"
 RC00 = "00_RUNTIME_CHECK"

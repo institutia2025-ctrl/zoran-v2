@@ -1,0 +1,8 @@
+# Sources canoniques autorisées (allowlist).
+# Tout CANONICAL_SPEC déclaré par un composant gouverné DOIT figurer ici,
+# sinon le gate CI échoue (PROVENANCE_BLOCKED). Registre déclaratif, additif.
+sources:
+  - id: SPEC_ENGINE_00_RUNTIME_CHECK
+    title: Porte 0 — runtime check fail-closed
+  - id: SPEC_ENGINE_01_OBJECT_DISCOVERY
+    title: Porte 1 — découverte structurée des objets

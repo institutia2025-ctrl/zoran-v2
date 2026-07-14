@@ -42,6 +42,17 @@ GOVERNANCE_REQUIRED_KEYS = (
     "ANTI_REGRESSION",
 )
 
+# --- Déclaration de provenance (gate anti-résurrection) — métadonnée pure ---
+PROVENANCE_DECL = {
+    "SOURCE_TYPE": "new",
+    "CANONICAL_SPEC": "SPEC_ENGINE_00_RUNTIME_CHECK",
+    "SOURCE_SHA": None,
+    "RETAINED_BEHAVIOR": "porte 0 fail-closed deterministe (RC00-RC03)",
+    "REJECTED_BEHAVIOR": "aucun (composant ecrit from scratch)",
+    "LEGACY_CHECK": "aucun comportement du registre FORBIDDEN reintroduit",
+    "BEHAVIOR_FLAGS": {"requests_llm_prechoices": False},
+}
+
 # Contrat de version Python : >= 3.11 et < 3.14
 PY_MIN = (3, 11)
 PY_MAX_EXCL = (3, 14)

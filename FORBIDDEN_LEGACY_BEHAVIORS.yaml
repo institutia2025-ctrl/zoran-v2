@@ -1,0 +1,17 @@
+# Registre des comportements historiques INTERDITS.
+# Additif : une nouvelle entrée suffit pour que le gate CI la couvre.
+# forbidden_flag : un composant ne doit JAMAIS le mettre à True (BEHAVIOR_FLAGS).
+# forbidden_tokens : marqueurs d'IMPLÉMENTATION (pas le nom du flag) scannés dans zoran_v2/*.py.
+forbidden:
+  - id: LEGACY_THREE_ROUTES_V1
+    status: FORBIDDEN
+    description: >
+      Demander à un LLM de générer trois phrases / pré-choix avant la
+      réponse utilisateur (ancienne route de pré-sélection).
+    reason: Architecture historique abandonnée.
+    replacement: Contrat actuel à préciser.
+    forbidden_flag: requests_llm_prechoices
+    forbidden_tokens:
+      - generate_three_prechoices
+      - llm_prechoice_routes
+      - THREE_ROUTES_PRECHOICE
