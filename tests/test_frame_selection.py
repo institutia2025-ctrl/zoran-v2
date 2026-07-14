@@ -162,7 +162,9 @@ def test_provenance_decl_present_et_conforme():
 
 def test_load_frame_registry_fail_closed():
     from zoran_v2.frame_selection import _frames_from_yaml_obj
-    assert _frames_from_yaml_obj(None) == []          # YAML vide
-    assert _frames_from_yaml_obj("pas un dict") == []  # top-level non-dict
-    assert _frames_from_yaml_obj([1, 2]) == []
+    assert _frames_from_yaml_obj(None) == []              # YAML vide
+    assert _frames_from_yaml_obj("pas un dict") == []      # scalaire (string)
+    assert _frames_from_yaml_obj(42) == []                 # scalaire (nombre)
+    assert _frames_from_yaml_obj([1, 2]) == []             # liste top-level
+    assert _frames_from_yaml_obj({"autre": 1}) == []       # clé absente
     assert _frames_from_yaml_obj({"frames": [{"id": "CODE"}]}) == [{"id": "CODE"}]
