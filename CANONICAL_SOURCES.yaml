@@ -10,3 +10,5 @@ sources:
     title: Porte 2 — sélection déterministe des cadres d'analyse
   - id: SPEC_ENGINE_03_OPERANTS_OPERES_ANALYSIS
     title: Porte 3 — analyse déterministe opérants/opérés dans les cadres
+  - id: SPEC_ENGINE_04_CANON_DETERMINATION
+    title: Porte 4 — détermination déterministe des canons + gel du référentiel
