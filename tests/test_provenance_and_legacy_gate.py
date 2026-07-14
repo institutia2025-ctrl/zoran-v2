@@ -64,6 +64,15 @@ def _int_const(node):
             and not isinstance(node.value, bool))
 
 
+def _target_name(t):
+    """Nom d'une cible d'affectation : `x` (Name) ou `obj.x` / `self.x` (Attribute)."""
+    if isinstance(t, ast.Name):
+        return t.id
+    if isinstance(t, ast.Attribute):
+        return t.attr
+    return None
+
+
 def scan_ast(source_text, forbidden):
     """Détection SÉMANTIQUE : parse le code, ignore chaînes/docstrings/commentaires.
 
@@ -83,13 +92,14 @@ def scan_ast(source_text, forbidden):
         elif isinstance(node, ast.Assign):
             if _int_const(node.value):
                 for t in node.targets:
-                    if isinstance(t, ast.Name) and (t.id, node.value.value) in params:
-                        hits.append(("assign", t.id, node.value.value))
+                    nm = _target_name(t)   # Name OU Attribute (cfg.x / self.x)
+                    if nm and (nm, node.value.value) in params:
+                        hits.append(("assign", nm, node.value.value))
         elif isinstance(node, ast.AnnAssign):
-            if (isinstance(node.target, ast.Name) and node.value is not None
-                    and _int_const(node.value)
-                    and (node.target.id, node.value.value) in params):
-                hits.append(("annassign", node.target.id))
+            nm = _target_name(node.target)
+            if (nm and node.value is not None and _int_const(node.value)
+                    and (nm, node.value.value) in params):
+                hits.append(("annassign", nm))
         elif isinstance(node, ast.keyword):
             if node.arg and _int_const(node.value) and (node.arg, node.value.value) in params:
                 hits.append(("kwarg", node.arg))
@@ -148,6 +158,14 @@ def test_meta_ast_bloque_assign_kwarg_dict():
     assert scan_ast("n_candidates=3", f)
     assert scan_ast("resultat = generate(x, n_candidates=3)", f)
     assert scan_ast('CFG = {"n_candidates": 3}', f)
+
+
+def test_meta_ast_bloque_affectation_attribut():
+    # Contournement Codex : cfg.n_candidates = 3 / self.n_candidates = 3
+    f = _forbidden()
+    assert scan_ast("cfg.n_candidates = 3", f)
+    assert scan_ast("self.n_candidates = 3", f)
+    assert scan_ast("obj.deep.n_prechoices = 3", f)
 
 
 def test_meta_ast_ignore_chaines_et_commentaires():
