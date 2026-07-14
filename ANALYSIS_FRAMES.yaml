@@ -1,0 +1,12 @@
+# Registre déclaratif des cadres d'analyse V1 (ratifié : TEXT, CODE, UI, SYSTEM).
+# Source canonique, PAS un moteur. Applicabilité déterministe : object.kind ∈ applies_to_kinds.
+# Cadres génériques volontairement (pas de cadre métier/historique tant que 03 n'est pas prêt).
+frames:
+  - id: CODE
+    applies_to_kinds: [code, identifier, function, module, file, class, symbol]
+  - id: SYSTEM
+    applies_to_kinds: [system, service, process, config, port, endpoint, resource]
+  - id: TEXT
+    applies_to_kinds: [text, term, sentence, phrase, document, note]
+  - id: UI
+    applies_to_kinds: [ui, component, widget, screen, view, button, layout]

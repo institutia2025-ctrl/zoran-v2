@@ -6,3 +6,5 @@ sources:
     title: Porte 0 — runtime check fail-closed
   - id: SPEC_ENGINE_01_OBJECT_DISCOVERY
     title: Porte 1 — découverte structurée des objets
+  - id: SPEC_ENGINE_02_ANALYSIS_FRAME_SELECTION
+    title: Porte 2 — sélection déterministe des cadres d'analyse
