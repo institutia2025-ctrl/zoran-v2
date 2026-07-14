@@ -1,22 +1,26 @@
 # Registre des comportements historiques INTERDITS.
 # Additif : une nouvelle entrée suffit pour que le gate CI la couvre.
-# forbidden_flag : un composant ne doit JAMAIS le mettre à True (BEHAVIOR_FLAGS).
-# forbidden_tokens : marqueurs d'IMPLÉMENTATION (pas le nom du flag) scannés dans zoran_v2/*.py.
+#
+# Détection SÉMANTIQUE par AST sur zoran_v2/*.py (PAS de regex globale) :
+#   - forbidden_flag       : un composant ne doit jamais le mettre True (BEHAVIOR_FLAGS)
+#   - forbidden_identifiers : noms/fonctions interdits UTILISÉS COMME CODE (def/appel/référence)
+#   - forbidden_int_params  : couple (name = entier) interdit en assignation, argument nommé
+#                             ou clé de dict littérale.
+# Les chaînes, docstrings et commentaires ne sont PAS des violations (ignorés par l'AST).
 forbidden:
   - id: LEGACY_THREE_ROUTES_V1
     status: FORBIDDEN
     description: >
       Demander à un LLM de générer trois phrases / pré-choix avant la
-      réponse utilisateur (ancienne route de pré-sélection).
+      réponse utilisateur (ancienne route de pré-sélection multi-candidat).
     reason: Architecture historique abandonnée.
     replacement: Contrat actuel à préciser.
     forbidden_flag: requests_llm_prechoices
-    forbidden_tokens:
+    forbidden_identifiers:
       - generate_three_prechoices
       - llm_prechoice_routes
-      - THREE_ROUTES_PRECHOICE
-    # forbidden_patterns : regex (couvrent les variantes d'espacement).
-    # Marqueur historique central du problème multi-candidat.
-    forbidden_patterns:
-      - 'n_candidates\s*=\s*3'
-      - 'n_prechoices\s*=\s*3'
+    forbidden_int_params:
+      - name: n_candidates
+        value: 3
+      - name: n_prechoices
+        value: 3

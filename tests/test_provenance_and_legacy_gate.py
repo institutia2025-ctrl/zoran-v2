@@ -1,16 +1,16 @@
 """Gate anti-résurrection — GARDE DE CI (jamais importé par le runtime 00→11).
 
 Deux barrières déterministes, sans LLM/réseau :
-- provenance : TOUT module gouverné de zoran_v2/ doit déclarer son origine
-  canonique (auto-découverte, PAS de liste codée en dur) sinon PROVENANCE_BLOCKED ;
-- behavior : aucun comportement historique interdit (flag, token OU pattern regex)
-  ne réapparaît dans zoran_v2/*.py.
+- provenance : TOUT module gouverné de zoran_v2/ doit déclarer son origine canonique
+  (AUTO-DÉCOUVERTE, pas de liste codée en dur) sinon PROVENANCE_BLOCKED ;
+- behavior : aucun comportement historique interdit ne réapparaît, détecté par
+  ANALYSE AST (sémantique) — jamais sur des chaînes, docstrings ou commentaires.
 
-Ce fichier NE décide d'aucun raisonnement, NE sélectionne aucun objet, NE remplace
-aucun composant : il refuse/accepte au moment de la CI.
+Ne décide d'aucun raisonnement, ne sélectionne aucun objet, ne remplace aucun
+composant : refuse/accepte au moment de la CI.
 """
+import ast
 import importlib
-import re
 from pathlib import Path
 
 import yaml
@@ -38,19 +38,12 @@ def _forbidden():
 
 
 def governed_module_names():
-    """AUTO-DÉCOUVERTE : tout zoran_v2/*.py hors __init__ et modules privés (_*).
-
-    Aucune liste codée en dur : un nouveau composant est couvert automatiquement.
-    """
-    out = []
-    for p in sorted(PKG_DIR.glob("*.py")):
-        if p.name == "__init__.py" or p.name.startswith("_"):
-            continue
-        out.append("zoran_v2." + p.stem)
-    return out
+    """AUTO-DÉCOUVERTE : tout zoran_v2/*.py hors __init__ et modules privés (_*)."""
+    return ["zoran_v2." + p.stem for p in sorted(PKG_DIR.glob("*.py"))
+            if p.name != "__init__.py" and not p.name.startswith("_")]
 
 
-# --- Fonctions de contrôle PURES (falsifiables via méta-tests) ---
+# --- Contrôles PURS (falsifiables via méta-tests) ---
 def check_provenance(decl, canonical_ids):
     if not isinstance(decl, dict):
         return ["no_provenance_decl"]
@@ -60,26 +53,59 @@ def check_provenance(decl, canonical_ids):
     return errs
 
 
-def scan_forbidden(source_text, forbidden):
-    hits = []
-    for entry in forbidden:
-        for tok in entry.get("forbidden_tokens", []):
-            if tok in source_text:
-                hits.append((entry["id"], "token", tok))
-        for pat in entry.get("forbidden_patterns", []):
-            if re.search(pat, source_text):
-                hits.append((entry["id"], "pattern", pat))
-    return hits
-
-
 def active_forbidden_flags(decl, forbidden):
     flags = (decl or {}).get("BEHAVIOR_FLAGS", {}) if isinstance(decl, dict) else {}
     return [e["id"] for e in forbidden
             if e.get("forbidden_flag") and flags.get(e["forbidden_flag"]) is True]
 
 
-def _package_source():
-    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(PKG_DIR.glob("*.py")))
+def _int_const(node):
+    return (isinstance(node, ast.Constant) and isinstance(node.value, int)
+            and not isinstance(node.value, bool))
+
+
+def scan_ast(source_text, forbidden):
+    """Détection SÉMANTIQUE : parse le code, ignore chaînes/docstrings/commentaires.
+
+    Bloque : identifiant interdit utilisé comme code ; `name = N` ; `f(name=N)` ;
+    `{"name": N}`. N'inspecte jamais le contenu des chaînes.
+    """
+    idents = {i for e in forbidden for i in e.get("forbidden_identifiers", [])}
+    params = {(p["name"], p["value"]) for e in forbidden
+              for p in e.get("forbidden_int_params", [])}
+    tree = ast.parse(source_text)
+    hits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in idents:
+            hits.append(("identifier", node.id))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in idents:
+            hits.append(("def", node.name))
+        elif isinstance(node, ast.Assign):
+            if _int_const(node.value):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and (t.id, node.value.value) in params:
+                        hits.append(("assign", t.id, node.value.value))
+        elif isinstance(node, ast.AnnAssign):
+            if (isinstance(node.target, ast.Name) and node.value is not None
+                    and _int_const(node.value)
+                    and (node.target.id, node.value.value) in params):
+                hits.append(("annassign", node.target.id))
+        elif isinstance(node, ast.keyword):
+            if node.arg and _int_const(node.value) and (node.arg, node.value.value) in params:
+                hits.append(("kwarg", node.arg))
+        elif isinstance(node, ast.Dict):
+            for k, v in zip(node.keys, node.values):
+                if (isinstance(k, ast.Constant) and isinstance(k.value, str)
+                        and _int_const(v) and (k.value, v.value) in params):
+                    hits.append(("dict_key", k.value))
+    return hits
+
+
+def _scan_package():
+    hits = []
+    for p in sorted(PKG_DIR.glob("*.py")):
+        hits += [(p.name, *h) for h in scan_ast(p.read_text(encoding="utf-8"), _forbidden())]
+    return hits
 
 
 # --- Barrière PROVENANCE (auto-découverte) ---
@@ -89,22 +115,19 @@ def test_canonical_sources_non_vide():
 
 def test_discovery_couvre_les_composants_reels():
     names = governed_module_names()
-    assert "zoran_v2.runtime_check" in names
-    assert "zoran_v2.object_discovery" in names
-    assert "zoran_v2._cycle_probe" not in names   # module privé exempté
-    assert "zoran_v2.__init__" not in names
+    assert "zoran_v2.runtime_check" in names and "zoran_v2.object_discovery" in names
+    assert "zoran_v2._cycle_probe" not in names and "zoran_v2.__init__" not in names
 
 
 def test_provenance_decl_complete_pour_tout_module_gouverne():
     canon = _canonical_ids()
     for name in governed_module_names():
         mod = importlib.import_module(name)
-        decl = getattr(mod, "PROVENANCE_DECL", None)
-        errs = check_provenance(decl, canon)
+        errs = check_provenance(getattr(mod, "PROVENANCE_DECL", None), canon)
         assert not errs, f"PROVENANCE_BLOCKED {name}: {errs}"
 
 
-# --- Barrière BEHAVIOR ---
+# --- Barrière BEHAVIOR (AST) ---
 def test_aucun_flag_interdit_active():
     forbidden = _forbidden()
     for name in governed_module_names():
@@ -113,24 +136,34 @@ def test_aucun_flag_interdit_active():
         assert not actives, f"LEGACY {name}: comportements interdits actifs {actives}"
 
 
-def test_aucun_token_ni_pattern_interdit_dans_le_source():
-    hits = scan_forbidden(_package_source(), _forbidden())
-    assert not hits, f"LEGACY présents dans zoran_v2/: {hits}"
+def test_aucun_comportement_interdit_dans_le_source():
+    hits = _scan_package()
+    assert not hits, f"LEGACY (AST) présents dans zoran_v2/: {hits}"
 
 
-# --- MÉTA-tests : le gate DOIT détecter chaque violation (falsifiabilité) ---
-def test_meta_scan_detecte_token_injecte():
-    forbidden = _forbidden()
-    tok = forbidden[0]["forbidden_tokens"][0]
-    assert scan_forbidden(f"x = 42  # {tok}", forbidden)
+# --- MÉTA-tests : détecte le vrai code, IGNORE strings/commentaires (anti-faux-positif) ---
+def test_meta_ast_bloque_assign_kwarg_dict():
+    f = _forbidden()
+    assert scan_ast("n_candidates = 3", f)
+    assert scan_ast("n_candidates=3", f)
+    assert scan_ast("resultat = generate(x, n_candidates=3)", f)
+    assert scan_ast('CFG = {"n_candidates": 3}', f)
 
 
-def test_meta_scan_detecte_pattern_n_candidates():
-    # Toutes les variantes d'espacement de la forme historique doivent matcher.
-    forbidden = _forbidden()
-    for variante in ("n_candidates=3", "n_candidates = 3", "n_candidates=  3",
-                     "generate_candidates(x, n_candidates=3)"):
-        assert scan_forbidden(variante, forbidden), f"non détecté: {variante!r}"
+def test_meta_ast_ignore_chaines_et_commentaires():
+    f = _forbidden()
+    inerte = (
+        '"""historical note: n_candidates=3 was forbidden"""\n'
+        'DOC = "n_candidates=3"\n'
+        'x = 1  # n_candidates=3 in a comment only\n'
+    )
+    assert scan_ast(inerte, f) == []
+
+
+def test_meta_ast_bloque_identifiant_mais_pas_en_chaine():
+    f = _forbidden()
+    assert scan_ast("def generate_three_prechoices():\n    return 1", f)
+    assert scan_ast('s = "generate_three_prechoices"', f) == []
 
 
 def test_meta_provenance_manquante_detectee():
@@ -144,6 +177,6 @@ def test_meta_spec_inconnue_detectee():
 
 
 def test_meta_flag_interdit_actif_detecte():
-    forbidden = _forbidden()
-    flag = forbidden[0]["forbidden_flag"]
-    assert active_forbidden_flags({"BEHAVIOR_FLAGS": {flag: True}}, forbidden)
+    f = _forbidden()
+    flag = f[0]["forbidden_flag"]
+    assert active_forbidden_flags({"BEHAVIOR_FLAGS": {flag: True}}, f)
