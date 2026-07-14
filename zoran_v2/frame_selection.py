@@ -79,13 +79,17 @@ def _blocked(by: str) -> dict:
 
 
 def _frames_for_kind(kind, registry) -> list:
-    """Cadres du REGISTRE dont applies_to_kinds contient kind. Triés, ⊆ registre."""
-    out = []
+    """Cadres du REGISTRE dont applies_to_kinds contient kind.
+
+    Dédupliqués (ensemble de cadres) et triés (ordre déterministe), ⊆ registre.
+    """
+    out = set()
     for f in registry:
         if not isinstance(f, dict) or "id" not in f:
             continue
-        if kind in (f.get("applies_to_kinds") or []):
-            out.append(f["id"])
+        kinds = f.get("applies_to_kinds")
+        if isinstance(kinds, list) and kind in kinds:
+            out.add(f["id"])
     return sorted(out)
 
 

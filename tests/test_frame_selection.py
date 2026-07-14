@@ -119,6 +119,25 @@ def test_registre_entree_malformee_ignoree():
     assert v["frames_selected"] == ["CODE"]
 
 
+def test_dedup_cadres_registre_duplique():
+    # Contournement Codex : id de cadre en double dans le registre → pas de doublon.
+    reg = [
+        {"id": "CODE", "applies_to_kinds": ["code"]},
+        {"id": "CODE", "applies_to_kinds": ["code"]},
+    ]
+    v = run_frame_selection(_env([_obj("k", "code")]), reg)
+    assert v["object_frame_map"] == [{"object_key": "k", "frames": ["CODE"]}]
+    assert v["frames_selected"] == ["CODE"]
+
+
+def test_applies_to_kinds_non_liste_ignoree():
+    # applies_to_kinds mal typé (string) ne doit PAS matcher par sous-chaîne.
+    reg = [{"id": "CODE", "applies_to_kinds": "code"}]
+    v = run_frame_selection(_env([_obj("k", "cod")]), reg)
+    assert v["frames_selected"] == []
+    assert v["unmatched_objects"] == [{"object_key": "k", "kind": "cod"}]
+
+
 def test_typeerror_envelope_non_dict():
     with pytest.raises(TypeError):
         run_frame_selection(None, REG)
