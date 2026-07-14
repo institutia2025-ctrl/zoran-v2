@@ -2,14 +2,14 @@
 
 Mission : **TX_ZORAN_GITHUB_SEED_P0_V2** · Statut : `SEED_CANDIDATE_LOCAL_CREATED` · `CODEX_AUDIT_REQUIRED` · `PUSH_NOT_AUTHORIZED`
 
-**Règle des coches** — Claude ne renseigne QUE `Claude` + `Preuve Claude`. Les colonnes `Codex / Verdict Codex / Preuve Codex` restent **vides** ([ ]) : Codex les remplit après vérification indépendante du commit exact. Une double coche = « déclaré par Claude ET vérifié par Codex », jamais une certification globale. Toute modif après audit → nouveau `CANDIDATE_SHA` + nouvel audit.
+**⚠️ IMMUABILITÉ** — Ce fichier est la **déclaration Claude** figée dans le commit seed. Codex **ne remplit PAS** ses colonnes ICI : les modifier changerait le SHA audité (boucle infinie). Le **double-contrôle** (coche Claude + coche Codex) est tenu dans le **registre externe** `ZORAN_V2_CONSTRUCTION/SEED_DOUBLE_INDEX.md`, clé `AUDITED_CANDIDATE_SHA`. Les colonnes Codex ci-dessous restent `[ ]` par convention ; l'autorité du verdict = registre externe. Toute modif du code/doc → nouveau `CANDIDATE_SHA` + nouvel audit externe.
 
 `BASE_SHA` = `e9d117fe9b3033dd303a38911e4cee92f5fca569` → `CANDIDATE_SHA` = nouveau SHA (produit post-commit ; non figé ici car ce fichier est inclus dans le commit — voir preuves brutes de session). Source canonique d'inventaire = `SEED_ALLOWLIST.json` (`SEED_MANIFEST.md` supprimé pour éviter deux inventaires).
 
 | ID | Contrôle | Claude | Preuve Claude | Codex | Verdict Codex | Preuve Codex |
 |----|----------|:------:|---------------|:-----:|---------------|--------------|
 | P0-001 | Dossier distinct du dépôt historique | [x] | graine hors arbre du dépôt de prod (répertoire séparé) | [ ] | | |
-| P0-002 | Aucun ancien `.git` copié | [x] | `git init` neuf ; `git log` = 1 commit racine, 0 parent | [ ] | | |
+| P0-002 | Aucun ancien `.git` copié | [x] | historique neuf = **2 commits propres** (racine + candidat) ; racine `rev-list --parents` = 0 parent ; aucun `.git` de production importé | [ ] | | |
 | P0-003 | Allowlist == fichiers présents | [x] | `git ls-tree -r HEAD` == entrées `SEED_ALLOWLIST.json` | [ ] | | |
 | P0-004 | Aucune donnée utilisateur réelle | [x] | 0 `data/`/`memory/`/conversations tracké ; scan raw joint | [ ] | | |
 | P0-005 | Aucun SQLite réel | [x] | 0 `*.db`/`*.sqlite*` (find, raw joint) | [ ] | | |

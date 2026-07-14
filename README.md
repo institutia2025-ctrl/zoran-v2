@@ -10,6 +10,11 @@ Base de construction du moteur de raisonnement ZORAN V2, **isolée du PC de Fred
 ## Cycle prouvé d'abord (avant le moteur)
 `BASE_SHA propre → repo privé → branche mission → Codespace → micro-change → commit → GitHub Actions (pytest) → audit Codex du diff → destruction du Codespace`
 
+## Glossaire des SHA (non ambigu)
+- **SOURCE_SHA** = `e7c33b227` — provenance historique (dépôt de production ZORAN). Cet arbre n'est **pas** publié (données réelles + secrets suspectés dans son historique).
+- **SEED_BASE_SHA** = `e9d117fe9b3033dd303a38911e4cee92f5fca569` — commit racine de la graine (base du diff d'audit P0.5).
+- **PREVIOUS_CANDIDATE_SHA** = `3cbcaa322eb22570daeb0ec92fc69d2934430f63` — candidat P0.5 précédent (audité par Codex).
+
 ## Provenance
-- Créée le 2026-07-14 depuis le dépôt local ZORAN (BASE_SHA de référence : `e7c33b227`), **par sélection allowlist** — l'arbre `e7c33b227` lui-même n'est **pas** publié (données réelles + secrets suspectés dans son historique).
+- Graine créée le 2026-07-14 **par sélection allowlist** (default-deny) à partir de la connaissance du dépôt de production (SOURCE_SHA), sans copier son historique ni ses données.
 - `zoran_v2/_cycle_probe.py` = sonde triviale déterministe (pas de logique moteur). Le moteur se construit ensuite, composant par composant.
