@@ -23,7 +23,7 @@ Contrat FIGÉ (Fred 2026-07-15) :
 Séparation BLOCKED vs REJECT (le LLM peut mal répondre : 08 le REJETTE, il ne se met pas en
 panne) :
 - BLOCKED : 00→07 ≠ PASS ; 07.executed != true ; enveloppe interne malformée ; fingerprint 04
-  absent/invalide.
+  absent/invalide ; veto ressource 05 absent ou non strictement True.
 - REJECT : réponse non-dict, schéma incorrect, fingerprint de réponse ≠, cible/canon/opérant
   inventé, contradiction, fuite de clé interne, résultats vides.
 - QUARANTINE : schéma valide, rien d'inventé, fingerprint conforme, aucune violation critique,
@@ -61,6 +61,7 @@ GOVERNANCE = {
         "REQUEST_06_AUTHORIZED_REVALIDATED",
         "COHERENCE_S_06_MATCHES_05_FINITE",
         "REFERENTIAL_FINGERPRINT_04_MATCHES_05",
+        "RESOURCE_VETO_05_REVALIDATED_STRICT_TRUE",
         "CANONS_OPERANTS_06_TRACE_04_03",
         "REFERENTIAL_FINGERPRINT_VERIFIED",
         "PROVENANCE_TO_03_04_05_06",
@@ -74,8 +75,8 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest (reponses mock conformes/degradees) + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..07 != PASS, 07 non execute, enveloppe malformee ou fingerprint 04 absent ; verdict REJECT si reponse non conforme/inventee/fuite ; QUARANTINE si partiel ou S_post<S_pre ; authorize_09 seulement si ACCEPT",
-    "ANTI_REGRESSION": "tests schema strict + provenance 04/06 + fingerprint + anti-fuite recursive + BLOCKED/REJECT/QUARANTINE/ACCEPT + determinisme + gouvernance ; gate CI",
+    "ALERTE": "status=BLOCKED si 00..07 != PASS, 07 non execute, veto ressource 05, enveloppe malformee ou fingerprint 04 absent ; verdict REJECT si reponse non conforme/inventee/fuite ; QUARANTINE si partiel ou S_post<S_pre ; authorize_09 seulement si ACCEPT",
+    "ANTI_REGRESSION": "tests schema strict + veto ressource 05 strict True + provenance 04/06 + fingerprint + anti-fuite recursive + BLOCKED/REJECT/QUARANTINE/ACCEPT + determinisme + gouvernance ; gate CI",
 }
 
 GOVERNANCE_REQUIRED_KEYS = (
@@ -115,6 +116,7 @@ NOT_EXECUTED = "07_LLM_EXECUTION_NOT_EXECUTED"
 ENVELOPE_MALFORMED = "08_COHERENCE_2_ENVELOPE_MALFORMED"
 FINGERPRINT_MISSING = "08_COHERENCE_2_FINGERPRINT_MISSING"
 FINGERPRINT_CHAIN_MISMATCH = "08_COHERENCE_2_FINGERPRINT_CHAIN_05_04_MISMATCH"
+RESOURCE_VETO_05 = "05_COHERENCE_ENGINE_RESOURCE_VETO"
 ORDER_KEY = "coherence_post_llm"
 
 # Contrat de réponse FIGÉ (07.response).
@@ -280,6 +282,9 @@ def run_coherence_2(envelope: dict) -> dict:
         return _blocked(FINGERPRINT_MISSING)
     ce = envelope["coherence_engine"]
     coherence5 = ce.get("coherence")
+    resource5 = ce.get("resource")
+    if not (isinstance(resource5, dict) and resource5.get("authorize_llm") is True):
+        return _blocked(RESOURCE_VETO_05)
     fingerprint5 = coherence5.get("referential_fingerprint") if isinstance(coherence5, dict) else None
     if not (isinstance(fingerprint5, str) and fingerprint5):
         return _blocked(FINGERPRINT_MISSING)

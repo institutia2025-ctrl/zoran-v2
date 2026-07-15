@@ -59,7 +59,8 @@ def _env(response=None, s_pre=0.5, targets=None, executed=True, fingerprint="FP"
                                 "canon_referential": {"fingerprint": fingerprint,
                                                       "canons": [{"id": "C"}, {"id": "C1"}, {"id": "C2"}]}},
         "coherence_engine": {"status": "PASS", "coherence": {
-            "S": s_pre, "referential_fingerprint": fingerprint}},
+            "S": s_pre, "referential_fingerprint": fingerprint},
+            "resource": {"authorize_llm": True, "reason": "delta_phi>=seuil"}},
         "llm_request_build": {"status": "PASS", "authorized": True, "llm_request": req},
         "llm_execution": {"status": "PASS", "executed": executed,
                           "response": response if response is not None else _resp()},
@@ -145,6 +146,54 @@ def test_blocked_fingerprint_05_absent_vide_ou_non_chaine(bad):
     assert v["status"] == BLOCKED
     assert v["blocked_by"] == FINGERPRINT_MISSING
     assert v["authorize_09"] is False
+
+
+def test_blocked_veto_ressource_05_absent_sans_juger_07():
+    from zoran_v2.coherence_2 import RESOURCE_VETO_05
+
+    env = _env(executed=True)
+    del env["coherence_engine"]["resource"]
+
+    v = run_coherence_2(env)
+
+    assert v["status"] == BLOCKED
+    assert v["blocked_by"] == RESOURCE_VETO_05
+    assert v["verdict"] is None
+    assert v["coherence_post"] is None
+    assert v["cinematic"] is None
+    assert v["authorize_09"] is False
+
+
+@pytest.mark.parametrize("bad", [False, 0, 1, "true", None])
+def test_blocked_veto_ressource_05_non_strictement_true_sans_juger_07(bad):
+    from zoran_v2.coherence_2 import RESOURCE_VETO_05
+
+    env = _env(executed=True)
+    env["coherence_engine"]["resource"] = {
+        "authorize_llm": bad, "reason": "VETO_05"}
+
+    v = run_coherence_2(env)
+
+    assert v["status"] == BLOCKED
+    assert v["blocked_by"] == RESOURCE_VETO_05
+    assert v["verdict"] is None
+    assert v["coherence_post"] is None
+    assert v["cinematic"] is None
+    assert v["authorize_09"] is False
+
+
+def test_blocked_veto_05_false_avec_07_execute_historique():
+    from zoran_v2.coherence_2 import RESOURCE_VETO_05
+
+    env = _env(executed=True)
+    env["coherence_engine"]["resource"] = {
+        "authorize_llm": False, "reason": "VETO_05"}
+
+    v = run_coherence_2(env)
+
+    assert v["status"] == BLOCKED and v["blocked_by"] == RESOURCE_VETO_05
+    assert v["verdict"] is None and v["coherence_post"] is None
+    assert v["cinematic"] is None and v["authorize_09"] is False
 
 
 def test_blocked_enveloppe_malformee_requete_absente():
@@ -309,7 +358,8 @@ def test_blocked_05_s_non_fini():
     for bad in (float("nan"), float("inf"), float("-inf")):
         env = _env()
         env["coherence_engine"] = {"status": "PASS", "coherence": {
-            "S": bad, "referential_fingerprint": "FP"}}
+            "S": bad, "referential_fingerprint": "FP"},
+            "resource": {"authorize_llm": True, "reason": "delta_phi>=seuil"}}
         # la requête 06 par défaut porte coherence_S=0.5 ; peu importe, 05 non-fini bloque d'abord.
         v = run_coherence_2(env)
         assert v["status"] == BLOCKED and v["blocked_by"] == ENVELOPE_MALFORMED, bad
