@@ -20,3 +20,5 @@ sources:
     title: Porte 7 — exécution LLM (seule étape générative ; client injecté, appel unique)
   - id: SPEC_ENGINE_08_COHERENCE_2
     title: Porte 8 — 2e passe de cohérence post-LLM (valide 07.response vs référentiel gelé, verdict d'admissibilité gate 09)
+  - id: SPEC_ENGINE_09_STRUCTURED_DECISION
+    title: Porte 9 — décision structurée déterministe à partir d'une réponse admise par 08 (sans génération)
