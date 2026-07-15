@@ -1,16 +1,32 @@
 {
   "AGENT": "CLAUDE",
   "ROLE": "BUILDER",
-  "STATUS": "ACK_DONE_READY_FOR_PR7_AUDIT",
+  "STATUS": "FIX_PUSHED_AWAITING_REAUDIT_ON_NEW_SHA",
   "LAST_MESSAGE_ID": "MSG-20260715-0846-CLAUDE-ACK1",
   "LAST_ACK_ID": "ACK-20260715-0846-CLAUDE",
   "CURRENT_MISSION_ID": "ZORAN_V2_ENGINE_CERTIFICATION_AND_COMPLETION",
-  "CURRENT_SHA": "a8ceb89c0683fd017a96addfc2a2c138dabec39e",
-  "GITHUB_VERIFIED": {
-    "integration_head": "79b7749bb1ff40df80a363d10f60ea54c834fea3",
-    "pr7": "OPEN CLEAN a8ceb89 CI 160 passed",
-    "note": "integration NE contient PAS le hardening PR#7 (2 P0 ouverts sur base canonique)"
+  "CURRENT_SHA": "d1cb11d23a39ca9681011d9cf3a78a8245365bc6",
+  "PREVIOUS_SHA": "a8ceb89c0683fd017a96addfc2a2c138dabec39e",
+  "FIX_LOT": {
+    "verdict_recu": "FIX_REQUIRED (audit ChatGPT global coherence relaye par Fred, sur a8ceb89)",
+    "branche": "fix/hardening-lot-audit-total",
+    "nouveau_sha": "d1cb11d23a39ca9681011d9cf3a78a8245365bc6",
+    "findings_corriges": [
+      "P1 07_LLM_EXECUTION: frontiere 06->07 fail-closed (validation schema 06 + interdiction object_key/PII avant tout appel client) -> 07_LLM_REQUEST_MALFORMED",
+      "P2 05_COHERENCE_ENGINE: anti-crash referentiel 04 malforme (validation records + try/except recompute) -> FINGERPRINT_MISMATCH (finding GitHub Codex r3582719244)",
+      "P2 05_COHERENCE_ENGINE: elements non-dict dans canons_selected/uncanonized/analysis desormais BLOQUES (fail-closed), plus ignores"
+    ],
+    "tests_regression_ajoutes": 12,
+    "preuve_ci": "CI push run 29397646965 = success (173 passed, Python 3.13) sur d1cb11d ; PR run 29397649220 = success",
+    "preuve_locale": "pytest local: 172 passed + 1 fail (test_cycle_probe py_lt_314, Python 3.14 local vs 3.13 CI, HORS diff)"
   },
-  "NEXT_ACTION": "Attendre audit direct PR#7 (Codex+ChatGPT). Gate OPEN, engine-08 interdit (contrat spec pret).",
-  "UPDATED_AT": "2026-07-15T08:46:15+0200"
+  "GITHUB_VERIFIED": {
+    "integration_head": "976c7ec7aac55cfbc763e2b6df35fb692f3b0a08",
+    "integration_head_note": "976c7ec = commit ACK SYNC-only pousse direct sur integration; 79b7749 = merge PR#8 (ancetre)",
+    "pr7": "OPEN d1cb11d mergeStateStatus=UNSTABLE CI success",
+    "note": "integration NE contient PAS le hardening PR#7 (2 P0 + findings audit restent ouverts sur base canonique tant que PR#7 non mergee)",
+    "verified_at": "2026-07-15T09:33:00+0200"
+  },
+  "NEXT_ACTION": "Re-audit du NOUVEAU SHA d1cb11d par Codex (local diff) + ChatGPT (global coherence). Ne PAS merger. CORRECTION_GATE OPEN, engine-08 interdit.",
+  "UPDATED_AT": "2026-07-15T09:33:00+0200"
 }
