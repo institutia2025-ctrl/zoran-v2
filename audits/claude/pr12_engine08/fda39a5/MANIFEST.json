@@ -1,0 +1,17 @@
+{
+  "OBJECT_ID": "PR12_ENGINE08",
+  "SHA_AUDITED": "fda39a5cbcb780d3e4601550a576e524957f4d4f",
+  "pr": 12, "branch_audited": "mission/engine-08-coherence-2",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT", "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE) ; correctifs code par CODEX_FIXER",
+  "created": "2026-07-15T16:53:37+02:00",
+  "supersedes": ["a048bcc1d2d86e5d5f9c773a829ec80545b920ec", "37f40b169eb1e94aab054bf424f070a9289cb9ad"],
+  "findings_closed": ["GC-08-P1-FINGERPRINT-CHAIN-05-04", "CSB-08-P1-001 RESOURCE_VETO_05_BYPASS (blocked_by=05_COHERENCE_ENGINE_RESOURCE_VETO, authorize_llm is True strict)"],
+  "ci": "5/5 success (pytest, test, pip-audit, gitleaks, bandit) ; local 341 passed (72 cibles 08) sous pytest 9.1.1, 1 deselected py_lt_314 env-only",
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "c51cb220a0c8f7ac0b91a412e06645f1360ef051e36a655fec5d8438b40c1fef", "bytes": 2148},
+    {"name": "PREP_AUDIT_08.md", "sha256": "82629915a8a2c102358203125192c14305f0d21ab00f573134243db3ab598ca7", "bytes": 8612},
+    {"name": "diff_ref_integration_to_fda39a5.txt", "sha256": "f666eb10f9917c5b6ce705ad3dba73e85696dcc5ab3c99ae4d7b922aaa344794", "bytes": 55860}
+  ]
+}
