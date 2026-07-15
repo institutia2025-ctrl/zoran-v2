@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import statistics
 
+from zoran_v2.canon_determination import _fingerprint as _canon_fingerprint
+
 COMPONENT_ID = "05_COHERENCE_ENGINE"
 VERSION = "1.0.0"
 
@@ -81,6 +83,7 @@ FS02 = "02_ANALYSIS_FRAME_SELECTION"
 OA03 = "03_OPERANTS_OPERES_ANALYSIS"
 CD04 = "04_CANON_DETERMINATION"
 MALFORMED = "05_COHERENCE_ENGINE_MALFORMED_INPUT"
+FINGERPRINT_MISMATCH = "05_COHERENCE_ENGINE_FINGERPRINT_MISMATCH"
 ORDER_KEY = "coherence_globale_deterministe_puis_verdict_ressource"
 
 OUTPUT_KEYS = (
@@ -102,15 +105,34 @@ def _pair(entry_key, frame):
 
 
 def _keys_all_str(*lists) -> bool:
-    """True ssi tout object_key/frame des entrées est une str (hashable, bien formé).
+    """True ssi CHAQUE entrée est un dict avec object_key ET frame str (hashable, bien formé).
 
-    Empêche un TypeError (object_key=liste -> unhashable) : entrée malformée -> fail-closed.
+    Un élément non-dict est REJETÉ, PAS ignoré : sinon un enregistrement malformé serait
+    écarté silencieusement et pourrait mener à un PASS trompeur (finding audit global).
+    Empêche aussi le TypeError (object_key=liste -> unhashable). Un conteneur non-liste est
+    lui-même rejeté (jamais d'itération sur un scalaire). Entrée malformée -> fail-closed.
     """
     for lst in lists:
+        if not isinstance(lst, list):
+            return False
         for e in lst:
-            if isinstance(e, dict):
-                if not (isinstance(e.get("object_key"), str) and isinstance(e.get("frame"), str)):
-                    return False
+            if not isinstance(e, dict):
+                return False
+            if not (isinstance(e.get("object_key"), str) and isinstance(e.get("frame"), str)):
+                return False
+    return True
+
+
+def _frozen_referential_wellformed(frozen_canons: list) -> bool:
+    """True ssi chaque record du référentiel GELÉ (04) est un dict avec un `id` str non vide.
+
+    Condition NÉCESSAIRE pour recalculer le fingerprint (04 trie sur ``c["id"]``) SANS lever
+    KeyError/TypeError. Un record malformé (``{}``, ``[]``, str, ``id`` non-str/vide) -> fail-closed
+    au lieu d'un crash (finding audit : 05 crashait sur un référentiel 04 malformé).
+    """
+    for c in frozen_canons:
+        if not (isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("id")):
+            return False
     return True
 
 
@@ -131,15 +153,41 @@ def run_coherence_engine(envelope: dict) -> dict:
     fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
     if not (isinstance(fingerprint, str) and fingerprint):
         return _blocked(CD04)  # référentiel non gelé / fingerprint invalide -> fail-closed
+    # Ré-vérification RÉELLE du gel : recalculer le sha256 des canons et comparer.
+    # (Sinon un référentiel modifié gardant le même texte de fingerprint passerait.)
+    frozen_canons = referential.get("canons")
+    # Un référentiel 04 malformé (record non-dict, ou `id` non-str) ferait lever _fingerprint
+    # (KeyError/TypeError sur c["id"]) AVANT toute comparaison : on valide D'ABORD -> fail-closed.
+    if not isinstance(frozen_canons, list) or not _frozen_referential_wellformed(frozen_canons):
+        return _blocked(FINGERPRINT_MISMATCH)
+    try:
+        recomputed_fp = _canon_fingerprint(frozen_canons)
+    except Exception:  # noqa: BLE001 — référentiel 04 non-sérialisable/inattendu -> fail-closed, jamais un crash
+        return _blocked(FINGERPRINT_MISMATCH)
+    if recomputed_fp != fingerprint:
+        return _blocked(FINGERPRINT_MISMATCH)
 
-    canons_selected = cd.get("canons_selected") or []
-    uncanonized = cd.get("uncanonized") or []
-    conflicts = cd.get("conflicts") or []
+    canons_selected = cd.get("canons_selected")
+    uncanonized = cd.get("uncanonized")
+    conflicts = cd.get("conflicts")
     oa = envelope["operants_operes"]
-    analysis = oa.get("analysis") or []
+    analysis = oa.get("analysis")
+
+    # Clé absente/None -> liste vide LÉGITIME. Toute AUTRE valeur non-liste (ex. {}, 0, '', ())
+    # est MALFORMÉE : elle doit être BLOQUÉE, pas normalisée silencieusement en [] par `or []`
+    # (finding GC-D1-002 : un conteneur falsy non-liste ne doit pas contourner le fail-closed).
+    for lst in (canons_selected, uncanonized, conflicts, analysis):
+        if lst is not None and not isinstance(lst, list):
+            return _blocked(MALFORMED)
+    canons_selected = canons_selected or []
+    uncanonized = uncanonized or []
+    conflicts = conflicts or []
+    analysis = analysis or []
 
     # Entrée malformée (object_key/frame non-str -> non hashable) -> fail-closed, jamais un crash.
-    if not _keys_all_str(canons_selected, uncanonized, analysis):
+    # `conflicts` est validé au même titre (finding GC-5FD-002 : un élément non-dict de conflicts
+    # ne doit pas passer silencieusement — sinon 04 malformé garde un statut PASS).
+    if not _keys_all_str(canons_selected, uncanonized, analysis, conflicts):
         return _blocked(MALFORMED)
 
     operant_pairs = {
@@ -183,23 +231,30 @@ def run_coherence_engine(envelope: dict) -> dict:
 
     # Autorisation LLM : jamais « à vide » (univers vide) — total_pairs > 0 requis.
     authorize = total_pairs > 0 and delta_phi >= DELTA_PHI_MIN
+    if authorize:
+        reason = "delta_phi>=seuil : 07 autorisé"
+    elif total_pairs == 0:
+        reason = "univers vide : rien à raisonner, 07 INTERDIT"
+    else:
+        reason = "delta_phi<seuil : 07 INTERDIT (veto ressource)"
     coherence = {
         "beta": BETA_V1,
         "delta_phi": delta_phi,
         "tension": tension,
         "sigma": sigma,
         "S": S,
+        "S_kind": "S_structural_v1",   # échelle [0,1] — NE PAS confondre avec le S général (>=6)
+        "S_range": [0.0, 1.0],
         "formula": CANONICAL_FORMULA,
         "resolved_pairs": resolved,
         "total_pairs": total_pairs,
         "conflicts": len(conflicts),
-        "referential_fingerprint": referential["fingerprint"],
+        "referential_fingerprint": fingerprint,
     }
     resource = {
         "authorize_llm": authorize,
         "delta_phi_min": DELTA_PHI_MIN,
-        "reason": ("delta_phi>=seuil : 07 autorisé" if authorize
-                   else "delta_phi<seuil : 07 INTERDIT (veto ressource)"),
+        "reason": reason,
         "resource_estimate_echo": cd.get("resource_estimate"),
     }
 

@@ -22,15 +22,20 @@ from zoran_v2.coherence_engine import (
     VERSION,
     run_coherence_engine,
 )
+from zoran_v2.canon_determination import _fingerprint as _canon_fp
 
 
-def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint="fp", re=None):
+def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint=None,
+        referential_canons=None, re=None):
+    rc = referential_canons or []
+    # Par défaut, fingerprint VALIDE (recalculé) ; passer fingerprint=... pour tester l'invalide.
+    fp = fingerprint if fingerprint is not None else _canon_fp(rc)
     return {
         "status": PASS,
         "canons_selected": canons_selected or [],
         "uncanonized": uncanonized or [],
         "conflicts": conflicts or [],
-        "canon_referential": {"fingerprint": fingerprint, "canons": [], "priorities": {}},
+        "canon_referential": {"fingerprint": fp, "canons": rc, "priorities": {}},
         "resource_estimate": re or {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
     }
 
@@ -213,6 +218,41 @@ def test_fingerprint_non_str_bloque():
     assert v["status"] == BLOCKED and v["blocked_by"] == "04_CANON_DETERMINATION"
 
 
+def test_fingerprint_recalcule_et_compare():
+    # Audit total P0 : 05 doit RECALCULER le sha256 des canons et comparer, pas juste vérifier
+    # qu'une chaîne existe. Fingerprint valide en type mais ne correspondant pas -> BLOCKED.
+    from zoran_v2.coherence_engine import FINGERPRINT_MISMATCH
+    cd = _cd(referential_canons=[{"id": "C", "priority": 10,
+                                  "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}],
+             fingerprint="0000000000000000000000000000000000000000000000000000000000000000")
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == BLOCKED and v["blocked_by"] == FINGERPRINT_MISMATCH
+
+
+def test_fingerprint_valide_correspond_passe():
+    # Fingerprint recalculé cohérent avec les canons -> PASS (pas de faux blocage).
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    cd = _cd(canons_selected=[{"object_key": "k", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=canons)  # fingerprint recalculé automatiquement
+    oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
+
+
+def test_S_kind_structural_v1_declare():
+    # Audit total P2 : l'échelle S∈[0,1] doit être nommée pour ne pas la confondre avec S>=6.
+    v = run_coherence_engine(_env())
+    assert v["coherence"]["S_kind"] == "S_structural_v1"
+    assert v["coherence"]["S_range"] == [0.0, 1.0]
+
+
+def test_reason_univers_vide_correcte():
+    # Audit total P2 : motif de veto correct pour univers vide (pas "delta_phi<seuil").
+    v = run_coherence_engine(_env())
+    assert v["resource"]["authorize_llm"] is False
+    assert "univers vide" in v["resource"]["reason"]
+
+
 def test_sigma_inclut_objets_zero_canon():
     # ChatGPT #7-8 : σ doit inclure les objets à 0 canon (dispersion non sous-estimée).
     cd = _cd(
@@ -223,3 +263,85 @@ def test_sigma_inclut_objets_zero_canon():
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     # counts = [1, 0] (k1=1 canon, k2=0) -> mean .5, pstdev .5 -> CV = 1.0 (avant fix : 0.0)
     assert v["coherence"]["sigma"] == 1.0
+
+
+# --- RÉGRESSIONS audit ChatGPT global coherence 2026-07-15 ---
+
+def test_referentiel_04_malforme_fail_closed_sans_crash():
+    # P2 : 05 recalcule le fingerprint via 04 (_fingerprint lit c["id"]). Un référentiel GELÉ
+    # malformé (record non-dict / id absent-vide-non str) ferait lever KeyError/TypeError.
+    # DOIT être BLOCKED(FINGERPRINT_MISMATCH), JAMAIS un crash.
+    from zoran_v2.coherence_engine import FINGERPRINT_MISMATCH
+    for bad in ([[]], [{}], ["x"], [{"id": 123}], [{"id": ""}], [{"priority": 1}]):
+        cd = _cd(fingerprint="FP_ARBITRAIRE", referential_canons=bad)  # jamais atteint : bloqué avant compare
+        v = run_coherence_engine(_env(cd=cd))  # ne doit PAS lever
+        assert v["status"] == BLOCKED and v["blocked_by"] == FINGERPRINT_MISMATCH, bad
+
+
+def test_element_non_dict_dans_listes_bloque_pas_ignore():
+    # P2 : un élément non-dict dans canons_selected/uncanonized/analysis doit BLOQUER (fail-closed),
+    # pas être silencieusement écarté (sinon PASS trompeur).
+    from zoran_v2.coherence_engine import MALFORMED
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    for field in ("canons_selected", "uncanonized"):
+        cd = _cd(referential_canons=canons,
+                 **{field: [{"object_key": "k", "frame": "CODE"}, "GARBAGE_NON_DICT"]})
+        v = run_coherence_engine(_env(cd=cd))
+        assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED, field
+    # analysis (via 03)
+    cd = _cd(referential_canons=canons,
+             canons_selected=[{"object_key": "k", "frame": "CODE", "canons": ["C"]}])
+    oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}, ["pas", "un", "dict"]])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED
+
+
+def test_conteneur_non_liste_bloque_sans_crash():
+    # Défense en profondeur : un conteneur non-liste (ex. dict) ne doit pas faire itérer sur un scalaire.
+    from zoran_v2.coherence_engine import MALFORMED
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    cd = _cd(referential_canons=canons, canons_selected={"object_key": "k", "frame": "CODE"})
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED
+
+
+# --- RÉGRESSION audit ChatGPT GC-D1-002 2026-07-15 : conteneur falsy non-liste ---
+
+def test_conteneur_falsy_non_liste_bloque_pas_normalise():
+    # GC-D1-002 : {} / 0 / '' / () sont FALSY -> `or []` les masquait en [] (PASS trompeur).
+    # Ils doivent désormais être BLOQUÉS (conteneur non-liste malformé). Injection APRÈS _cd/_oa
+    # pour contourner le `or []` des helpers de test.
+    from zoran_v2.coherence_engine import MALFORMED
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    base = _cd(referential_canons=canons)
+    for bad in ({}, 0, "", ()):
+        for field in ("canons_selected", "uncanonized", "conflicts"):
+            cd = {**base, field: bad}
+            v = run_coherence_engine(_env(cd=cd))
+            assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED, (field, bad)
+        # analysis vit dans l'enveloppe 03 : injection directe
+        e = _env(cd=base)
+        e["operants_operes"] = {**e["operants_operes"], "analysis": bad}
+        v = run_coherence_engine(e)
+        assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED, ("analysis", bad)
+
+
+def test_conteneur_none_ou_absent_reste_legitime():
+    # None / clé absente = liste vide LÉGITIME (ne pas sur-bloquer) -> PASS dégénéré.
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    base = _cd(referential_canons=canons)
+    cd = {**base, "canons_selected": None, "uncanonized": None, "conflicts": None}
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == PASS
+
+
+def test_conflicts_element_non_dict_bloque():
+    # GC-5FD-002 : un élément non-dict de conflicts doit BLOQUER (fail-closed), pas passer via len().
+    from zoran_v2.coherence_engine import MALFORMED
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    base = _cd(referential_canons=canons,
+               canons_selected=[{"object_key": "k", "frame": "CODE", "canons": ["C"]}])
+    cd = {**base, "conflicts": [{"object_key": "k", "frame": "CODE"}, "GARBAGE_NON_DICT"]}
+    oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED

@@ -119,8 +119,14 @@ def _norm_str_list(xs) -> list:
 
 
 def _clean_canon(c) -> dict | None:
-    """Valide + normalise un canon. None si malformé (fail-closed)."""
-    if not isinstance(c, dict) or "id" not in c:
+    """Valide + normalise un canon. None si malformé (fail-closed).
+
+    id DOIT être une str non vide (sinon inutilisable comme clé -> rejet, pas de TypeError).
+    """
+    if not isinstance(c, dict):
+        return None
+    cid = c.get("id")
+    if not (isinstance(cid, str) and cid):
         return None
     frames = c.get("applies_to_frames")
     kinds = c.get("applies_to_kinds")

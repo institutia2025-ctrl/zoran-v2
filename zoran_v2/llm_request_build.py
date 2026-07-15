@@ -7,9 +7,12 @@ autorisation explicite de 05 — contrat RESSOURCE). N'appelle AUCUN LLM (→ 07
 ne génère rien, déterministe, immuable.
 
 RULE-078 (anonymisation) — satisfaite PAR CONSTRUCTION en V1 : la requête ne porte
-que des données STRUCTURELLES (object_key = identifiants, kind, frames, canons,
-operants) et le fingerprint du référentiel — AUCUN contenu utilisateur brut, donc
-aucune PII n'atteint le LLM.
+que des données STRUCTURELLES (identifiant OPAQUE object_public_id, frames, ids de
+canons/opérants) et le fingerprint du référentiel — AUCUN contenu utilisateur brut.
+GC-051-001 : le kind transmis est `kind_public`, tiré EXCLUSIVEMENT du vocabulaire
+canonique du référentiel gelé (applies_to_kinds), jamais la chaîne brute de 01 (qui
+pourrait porter une PII) ; à défaut de kind canonique la cible n'est pas produite.
+Donc aucune PII n'atteint le LLM.
 """
 from __future__ import annotations
 
@@ -74,7 +77,7 @@ ORDER_KEY = "targets_par_object_key_puis_frame"
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
-    "authorized", "llm_request", "order_key",
+    "authorized", "llm_request", "object_id_map", "order_key",
 )
 
 
@@ -82,7 +85,8 @@ def _blocked(by: str) -> dict:
     return {
         "component": COMPONENT_ID, "version": VERSION,
         "status": BLOCKED, "blocked_by": by,
-        "authorized": False, "llm_request": None, "order_key": ORDER_KEY,
+        "authorized": False, "llm_request": None, "object_id_map": {},
+        "order_key": ORDER_KEY,
     }
 
 
@@ -105,7 +109,7 @@ def run_llm_request_build(envelope: dict) -> dict:
         return {
             "component": COMPONENT_ID, "version": VERSION,
             "status": PASS, "blocked_by": None,
-            "authorized": False, "llm_request": None,
+            "authorized": False, "llm_request": None, "object_id_map": {},
             "order_key": ORDER_KEY,
         }
 
@@ -128,31 +132,50 @@ def run_llm_request_build(envelope: dict) -> dict:
 
     # Cibles = paires RÉSOLUES (canonisées ET pourvues d'opérants) — déterministe, triées.
     pairs = sorted(set(canons_by_pair) & set(operants_by_pair))
+
+    referential = cd.get("canon_referential") or {}
+    # GC-051-001 : `kind_public` provient EXCLUSIVEMENT du vocabulaire canonique du référentiel GELÉ
+    # par 04 (union des `applies_to_kinds`), JAMAIS de la chaîne brute de 01 (01 accepte tout kind ->
+    # PII possible). Pour toute paire canonisée, le kind de l'objet ∈ applies_to_kinds du canon appliqué
+    # (membership exact, sans wildcard) : kind_public est donc établi nominalement. Si aucun kind
+    # canonique exact n'existe pour l'objet -> fail-closed : la cible N'EST PAS produite (jamais la brute).
+    canonical_kinds = {
+        k for c in (referential.get("canons") or []) if isinstance(c, dict)
+        for k in (c.get("applies_to_kinds") or []) if isinstance(k, str)
+    }
+    retained = [(ok, fr) for (ok, fr) in pairs if kind_by_key.get(ok) in canonical_kinds]
+
+    # RULE-078 : object_key dérive du contenu utilisateur normalisé (01 : f"{kind}\x1f{normalized}").
+    # Il NE DOIT PAS partir au LLM. On attribue un identifiant OPAQUE déterministe (OBJ-0001…) ;
+    # la table de correspondance reste LOCALE (object_id_map), jamais envoyée (07 n'envoie que llm_request).
+    distinct_keys = sorted({ok for (ok, _fr) in retained})
+    public_id = {ok: f"OBJ-{i + 1:04d}" for i, ok in enumerate(distinct_keys)}
+
     targets = [
         {
-            "object_key": ok,
-            "kind": kind_by_key.get(ok),
+            "object_public_id": public_id[ok],
+            "kind_public": kind_by_key.get(ok),  # ∈ applies_to_kinds du référentiel gelé (garanti par retained)
             "frame": fr,
             "canons": canons_by_pair[(ok, fr)],
             "operants": operants_by_pair[(ok, fr)],
         }
-        for (ok, fr) in pairs
+        for (ok, fr) in retained
     ]
 
-    referential = cd.get("canon_referential") or {}
     llm_request = {
         "instruction_kind": "STRUCTURED_ANALYSIS_V1",
         "referential_fingerprint": referential.get("fingerprint"),
         "coherence_S": coherence.get("S"),
-        "frames": sorted({fr for (_, fr) in pairs}),
+        "frames": sorted({fr for (_, fr) in retained}),
         "targets": targets,
-        "pii_policy": "NO_RAW_USER_CONTENT_STRUCTURAL_ONLY",  # RULE-078 par construction
+        "pii_policy": "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT",  # RULE-078 réellement appliquée
     }
 
     return {
         "component": COMPONENT_ID, "version": VERSION,
         "status": PASS, "blocked_by": None,
         "authorized": True, "llm_request": llm_request,
+        "object_id_map": {pid: ok for ok, pid in public_id.items()},  # LOCAL, jamais au LLM
         "order_key": ORDER_KEY,
     }
 

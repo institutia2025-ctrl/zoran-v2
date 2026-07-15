@@ -29,8 +29,14 @@ def _ce(authorize=True, S=1.0):
     }
 
 
+# Vocabulaire canonique du référentiel gelé (04). `kind_public` DOIT en provenir (GC-051-001).
+_CANONICAL_KINDS = ["code", "text"]
+_REFERENTIAL_CANONS = [{"id": "K", "applies_to_kinds": _CANONICAL_KINDS,
+                        "applies_to_frames": ["CODE", "TEXT", "FRONTEND"], "priority": 1}]
+
+
 def _env(objects=None, canons_selected=None, analysis=None, ce=None,
-         rc="PASS", od="PASS", fs="PASS", oa="PASS", cd="PASS"):
+         rc="PASS", od="PASS", fs="PASS", oa="PASS", cd="PASS", referential_canons=None):
     return {
         "runtime_check": {"status": rc},
         "object_discovery": {"status": od, "objects": objects or []},
@@ -39,7 +45,11 @@ def _env(objects=None, canons_selected=None, analysis=None, ce=None,
         "canon_determination": {
             "status": cd,
             "canons_selected": canons_selected or [],
-            "canon_referential": {"fingerprint": "FP", "canons": [], "priorities": {}},
+            "canon_referential": {
+                "fingerprint": "FP",
+                "canons": _REFERENTIAL_CANONS if referential_canons is None else referential_canons,
+                "priorities": {},
+            },
         },
         "coherence_engine": ce if ce is not None else _ce(),
     }
@@ -87,10 +97,14 @@ def test_requete_construite_si_autorise():
     assert req["referential_fingerprint"] == "FP"
     assert req["coherence_S"] == 0.83
     assert req["frames"] == ["CODE"]
+    # GC-051-001 : kind_public canonique (∈ référentiel), jamais le champ brut `kind` de 01.
     assert req["targets"] == [{
-        "object_key": "k1", "kind": "code", "frame": "CODE",
+        "object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
         "canons": ["CANON_STRUCTURE"], "operants": ["OP_DESCRIBE"],
     }]
+    assert "kind" not in req["targets"][0]  # le champ brut n'existe pas
+    assert req["targets"][0]["kind_public"] in _CANONICAL_KINDS
+    assert v["object_id_map"] == {"OBJ-0001": "k1"}
 
 
 def test_cibles_uniquement_paires_resolues():
@@ -109,7 +123,50 @@ def test_pii_free_policy_presente():
         canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
         analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}],
     ))
-    assert v["llm_request"]["pii_policy"] == "NO_RAW_USER_CONTENT_STRUCTURAL_ONLY"
+    assert v["llm_request"]["pii_policy"] == "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT"
+
+
+def test_object_key_pii_n_atteint_pas_le_llm():
+    # Audit total P0 : object_key = contenu utilisateur normalisé (01 : f"{kind}\x1f{normalized}").
+    # Il NE DOIT PAS apparaître dans la requête envoyée au LLM ; seul un id opaque y figure.
+    import json
+    pii = "code\x1fjean-dupont-dossier-medical"
+    v = run_llm_request_build(_env(
+        objects=[{"object_key": pii, "kind": "code"}],
+        canons_selected=[{"object_key": pii, "frame": "CODE", "canons": ["C"]}],
+        analysis=[{"object_key": pii, "frame": "CODE", "operants": ["O"]}],
+    ))
+    blob = json.dumps(v["llm_request"], ensure_ascii=False)
+    assert pii not in blob  # AUCUNE fuite de la clé dérivée dans la requête
+    assert v["llm_request"]["targets"][0]["object_public_id"] == "OBJ-0001"
+    assert v["object_id_map"] == {"OBJ-0001": pii}  # correspondance LOCALE seulement
+
+
+def test_pii_dans_kind_admis_par_01_n_atteint_pas_le_llm():
+    # GC-051-001 (test adversarial ChatGPT) : 01 accepte TOUTE str non vide comme kind, donc une PII
+    # peut être un kind VALIDE en amont (pas seulement injectée en 06). Ce kind N'ÉTANT PAS dans le
+    # vocabulaire canonique du référentiel, la cible est FAIL-CLOSED (non produite) : la PII
+    # n'apparaît NULLE PART dans la requête LLM (jamais reprise en brut).
+    import json
+    pii_kind = "dossier medical de Jean Dupont"  # non canonique (pas dans _CANONICAL_KINDS)
+    v = run_llm_request_build(_env(
+        objects=[{"object_key": "k1", "kind": pii_kind}],
+        canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+        analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}],
+    ))
+    assert v["authorized"] is True
+    assert v["llm_request"]["targets"] == []  # fail-closed : cible non produite
+    assert pii_kind not in json.dumps(v["llm_request"], ensure_ascii=False)  # PII absente partout
+
+
+def test_kind_canonique_transmis_sous_kind_public():
+    # GC-051-001 (test ChatGPT #2) : un kind légitime (canonique) est transmis sous kind_public.
+    v = run_llm_request_build(_env(
+        objects=[{"object_key": "k1", "kind": "text"}],
+        canons_selected=[{"object_key": "k1", "frame": "TEXT", "canons": ["C"]}],
+        analysis=[{"object_key": "k1", "frame": "TEXT", "operants": ["O"]}],
+    ))
+    assert v["llm_request"]["targets"][0]["kind_public"] == "text"
 
 
 def test_deterministe():
