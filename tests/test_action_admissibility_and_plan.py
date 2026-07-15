@@ -8,7 +8,7 @@ import copy
 
 import pytest
 
-from zoran_v2.structured_decision import _canonical_sha256
+from zoran_v2.structured_decision import _canonical_sha256, run_structured_decision
 from zoran_v2.action_admissibility_and_plan import (
     ACTION_BLOCKED,
     ACTION_NOT_IN_CATALOG,
@@ -18,7 +18,7 @@ from zoran_v2.action_admissibility_and_plan import (
     ACTION_REQUEST_MALFORMED,
     BLOCKED,
     CATALOG_INVALID,
-    DECISION_INTEGRITY,
+    DECISION_REPLAY_MISMATCH,
     GOVERNANCE,
     GOVERNANCE_REQUIRED_KEYS,
     HUMAN_APPROVAL_REQUIRED,
@@ -67,18 +67,18 @@ def _permissions(granted=None):
     return {"version": "1.0.0", "granted": granted if granted is not None else ["PERM_WRITE", "PERM_REPORT"]}
 
 
-def _env(action_id="ACTION_ANNOTATE", target_refs=None, assessed=None, decision=None, **over):
-    base = {
-        "runtime_check": {"status": "PASS"}, "object_discovery": {"status": "PASS"},
-        "frame_selection": {"status": "PASS"}, "operants_operes": {"status": "PASS"},
-        "canon_determination": {"status": "PASS"}, "coherence_engine": {"status": "PASS"},
-        "llm_request_build": {"status": "PASS"}, "llm_execution": {"status": "PASS"},
-        "coherence_2": {"status": "PASS"},
-        "structured_decision": decision if decision is not None else _decision(),
-        "action_request": {"action_id": action_id, "target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]]},
+def _env(action_id="ACTION_ANNOTATE", target_refs=None, assessed=None, decision=None,
+         authority_env=None, **over):
+    from tests.test_structured_decision import _env as _env_09
+
+    base = copy.deepcopy(authority_env) if authority_env is not None else _env_09()
+    base.update({
+        "structured_decision": decision if decision is not None else run_structured_decision(base),
+        "action_request": {"action_id": action_id,
+                           "target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]]},
         "impact_context": {"assessed_target_refs": assessed if assessed is not None else [["OBJ-0001", "CODE"]],
                            "global_impact": "impact faible", "risks": ["r1"]},
-    }
+    })
     base.update(over)
     return base
 
@@ -142,18 +142,63 @@ def test_CE_upstream_00_a_08_non_pass():
 
 def test_CE_decision_id_invalide():
     env = _env(decision=_decision(decision_id="NOT-A-DECISION-ID"))
-    assert _code(RUN(env, _catalog(), _permissions())) == DECISION_INTEGRITY
+    assert _code(RUN(env, _catalog(), _permissions())) == DECISION_REPLAY_MISMATCH
 
 
 def test_CE_content_sha256_09_falsifie():
     d = _decision()
     d["referential_fingerprint"] = "TAMPERED"  # CONTENT_SHA256 devient obsolète (décision altérée)
-    assert _code(RUN(_env(decision=d), _catalog(), _permissions())) == DECISION_INTEGRITY
+    assert _code(RUN(_env(decision=d), _catalog(), _permissions())) == DECISION_REPLAY_MISMATCH
+
+
+def test_CE_decision_09_rehashee_mais_divergente_du_replay_00_08():
+    from tests.test_structured_decision import _env as _env_09
+
+    env = _env_09()
+    forged = dict(run_structured_decision(env))
+    forged["targets"] = [{"object_public_id": "OBJ-9999", "frame": "CODE"}]
+    forged["decision_id"] = "DECISION-" + "b" * 64
+    forged["CONTENT_SHA256"] = _canonical_sha256(
+        {k: v for k, v in forged.items() if k != "CONTENT_SHA256"})
+    env.update({
+        "structured_decision": forged,
+        "action_request": {"action_id": "ACTION_ANNOTATE", "target_refs": [["OBJ-9999", "CODE"]]},
+        "impact_context": {"assessed_target_refs": [["OBJ-9999", "CODE"]],
+                           "global_impact": "impact faible", "risks": ["r1"]},
+    })
+
+    out = RUN(env, _catalog(), _permissions())
+
+    assert out["status"] == BLOCKED
+    assert out["action_plan_id"] is None
+
+
+def test_CE_divergence_09_bloquee_avant_lecture_action_request():
+    from tests.test_structured_decision import _env as _env_09
+
+    class ExplodingActionRequest(dict):
+        def items(self):
+            raise AssertionError("action_request lue avant replay 09")
+
+    env = _env_09()
+    forged = dict(run_structured_decision(env))
+    forged["decision_id"] = "DECISION-" + "c" * 64
+    forged["CONTENT_SHA256"] = _canonical_sha256(
+        {k: v for k, v in forged.items() if k != "CONTENT_SHA256"})
+    env["structured_decision"] = forged
+    unread = ExplodingActionRequest()
+    env["action_request"] = unread
+    env["impact_context"] = unread
+
+    out = RUN(env, unread, unread)
+
+    assert out["status"] == BLOCKED
+    assert out["action_plan_id"] is None
 
 
 def test_CE_decision_incomplete():
     d = _decision(); del d["targets"]
-    assert _code(RUN(_env(decision=d), _catalog(), _permissions())) == DECISION_INTEGRITY
+    assert _code(RUN(_env(decision=d), _catalog(), _permissions())) == DECISION_REPLAY_MISMATCH
 
 
 def test_CE_action_hors_catalogue():
@@ -207,10 +252,23 @@ def test_action_plan_id_deterministe():
 
 
 def test_action_plan_id_contexte_target_change_id():
-    d2 = _decision(targets=[{"object_public_id": "OBJ-0001", "frame": "CODE"},
-                            {"object_public_id": "OBJ-0002", "frame": "CODE"}])
-    a = RUN(_env(decision=d2, target_refs=[["OBJ-0001", "CODE"]]), _catalog(), _permissions())
-    b = RUN(_env(decision=d2, target_refs=[["OBJ-0002", "CODE"]]), _catalog(), _permissions())
+    from tests.test_structured_decision import _env as _env_09, _response
+
+    targets = [
+        {"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+         "canons": ["C"], "operants": ["OP"]},
+        {"object_public_id": "OBJ-0002", "kind_public": "code", "frame": "CODE",
+         "canons": ["C"], "operants": ["OP"]},
+    ]
+    results = [
+        {"object_public_id": opid, "frame": "CODE",
+         "canon_findings": [{"canon": "C", "admissible": True}],
+         "operant_outcomes": [{"operant": "OP", "applied": True}]}
+        for opid in ("OBJ-0001", "OBJ-0002")
+    ]
+    authority = _env_09(targets=targets, response=_response(results=results))
+    a = RUN(_env(authority_env=authority, target_refs=[["OBJ-0001", "CODE"]]), _catalog(), _permissions())
+    b = RUN(_env(authority_env=authority, target_refs=[["OBJ-0002", "CODE"]]), _catalog(), _permissions())
     assert a["action_plan_id"] != b["action_plan_id"]  # cible différente -> plan différent
 
 

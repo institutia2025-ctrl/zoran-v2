@@ -17,6 +17,7 @@ from zoran_v2.structured_decision import (
     _canonical_sha256,
     _has_internal_leak,
     _has_surrogate_codepoint,
+    run_structured_decision,
 )
 
 COMPONENT_ID = "10_ACTION_ADMISSIBILITY_AND_PLAN"
@@ -34,13 +35,14 @@ GOVERNANCE = {
         "HUMAN_GO_REQUIRED_FOR_SENSITIVE_MUTATION", "ANTI_LEAK", "EXACT_STRING_PRESERVATION",
         "NON_SCALAR_UNICODE_BLOCKED", "CANONICAL_PRIMITIVE_REUSED", "OBJECT_FIRST_CONTENT_SHA256",
         "ACTION_PLAN_ID_COVERS_COMPLETE_CONTEXT", "NO_HIDDEN_READ_IN_PURE_FN", "DECISION_09_INTEGRITY_REVALIDATED",
+        "DECISION_09_PROVENANCE_REPLAYED_EXACTLY",
     ],
-    "TRACEABILITY": "plan {action_plan_id, action_status, global_impact, rollback_plan, approval_scope, justification_refs} ; primitive _fingerprint reutilisee (via 09) ; decision 09 revalidee ; SHA git ; run CI",
+    "TRACEABILITY": "plan {action_plan_id, action_status, global_impact, rollback_plan, approval_scope, justification_refs} ; primitive _fingerprint reutilisee (via 09) ; decision 09 rejouee depuis 00-08 et comparee exactement ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..09 != PASS, decision 09 alteree/incomplete/decision_id invalide, action_request malforme, action hors catalogue, catalogue/permissions invalides, cible hors 09, impact_context malforme, fuite ou surrogate",
-    "ANTI_REGRESSION": "tests contre-exemples adversariaux + determinisme/contexte action_plan_id + integrite 09 (CONTENT_SHA256 recompute) + verdicts + anti-fuite/surrogate + gouvernance ; gate CI",
+    "ALERTE": "status=BLOCKED si 00..09 != PASS, decision 09 recue != replay exact 00-08, decision 09 alteree/incomplete/decision_id invalide, action_request malforme, action hors catalogue, catalogue/permissions invalides, cible hors 09, impact_context malforme, fuite ou surrogate",
+    "ANTI_REGRESSION": "tests contre-exemples adversariaux + replay exact 09 avant toute donnee action + determinisme/contexte action_plan_id + integrite 09 + verdicts + anti-fuite/surrogate + gouvernance ; gate CI",
 }
 
 GOVERNANCE_REQUIRED_KEYS = (
@@ -99,6 +101,7 @@ _STEPS_00_09 = (
 # Codes blocked_by DÉDIÉS 10 (blocked_by = "<code>@<frontière/moteur source>").
 UPSTREAM_NOT_PASS = "10_ACTION_UPSTREAM_NOT_PASS"
 DECISION_INTEGRITY = "10_ACTION_DECISION_09_INTEGRITY"
+DECISION_REPLAY_MISMATCH = "10_ACTION_DECISION_09_REPLAY_MISMATCH"
 ACTION_REQUEST_MALFORMED = "10_ACTION_REQUEST_MALFORMED"
 ACTION_NOT_IN_CATALOG = "10_ACTION_NOT_IN_CATALOG"
 CATALOG_INVALID = "10_ACTION_CATALOG_INVALID"
@@ -195,18 +198,19 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
             return _blocked(UPSTREAM_NOT_PASS, comp)
 
     sd = envelope["structured_decision"]
-    action_request = envelope.get("action_request")
-    impact_context = envelope.get("impact_context")
+    # 2) Replay 09 depuis 00→08 + comparaison exacte, avant toute donnée d'action.
+    expected_sd = run_structured_decision(envelope)
+    if sd != expected_sd:
+        return _blocked(DECISION_REPLAY_MISMATCH, "frontier:09.received<->09.replayed")
 
-    # 2) Anti-fuite + anti-surrogate sur TOUTES les entrées consommées (avant tout usage/hash).
-    for payload, src in ((sd, "09.decision"), (action_request, "action_request"),
-                         (impact_context, "impact_context"), (catalog, "catalog"), (permissions, "permissions")):
+    # 3) Défense en profondeur sur la décision 09 autoritaire.
+    for payload, src in ((sd, "09.decision"),):
         if _has_internal_leak(payload):
             return _blocked(LEAK, src)
         if _has_surrogate_codepoint(payload):
             return _blocked(NON_SCALAR_UNICODE, src)
 
-    # 3) Intégrité de la décision 09 (revalidée, jamais confiance au statut) : schéma exact, decision_id valide,
+    # 4) Intégrité de la décision 09 (revalidée, jamais confiance au statut) : schéma exact, decision_id valide,
     #    CONTENT_SHA256 RECALCULÉ == (décision non altérée).
     if set(sd) != _SD_KEYS:
         return _blocked(DECISION_INTEGRITY, "09.schema")
@@ -221,27 +225,42 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
                         if isinstance(t, dict) and isinstance(t.get("object_public_id"), str)
                         and isinstance(t.get("frame"), str)}
 
-    # 4) Catalogue versionné + permissions (INJECTÉS) revalidés.
-    actions_by_id, catalog_fp = _validate_catalog(catalog)
-    if actions_by_id is None:
-        return _blocked(CATALOG_INVALID, "catalog")
-    if not _valid_permissions(permissions):
-        return _blocked(PERMISSIONS_INVALID, "permissions")
-
-    # 5) action_request explicite (P-10-1) : schéma, action ∈ catalogue, cibles ⊆ 09.
+    # 5) action_request explicite (P-10-1) : schéma et cibles ⊆ 09.
+    action_request = envelope.get("action_request")
+    if _has_internal_leak(action_request):
+        return _blocked(LEAK, "action_request")
+    if _has_surrogate_codepoint(action_request):
+        return _blocked(NON_SCALAR_UNICODE, "action_request")
     if not (isinstance(action_request, dict) and set(action_request) == _ACTION_REQUEST_KEYS):
         return _blocked(ACTION_REQUEST_MALFORMED, "action_request")
     action_id = action_request.get("action_id")
     target_refs_raw = action_request.get("target_refs")
     if not (isinstance(action_id, str) and action_id and _is_pair_list(target_refs_raw)):
         return _blocked(ACTION_REQUEST_MALFORMED, "action_request")
-    if action_id not in actions_by_id:
-        return _blocked(ACTION_NOT_IN_CATALOG, "catalog")
     req_pairs = {(p[0], p[1]) for p in target_refs_raw}
     if not req_pairs <= decision_targets:
         return _blocked(TARGET_PROVENANCE, "frontier:action_request<->09.targets")
 
-    # 6) impact_context revalidé.
+    # 6) Catalogue versionné + permissions (INJECTÉS) revalidés.
+    for payload, src in ((catalog, "catalog"), (permissions, "permissions")):
+        if _has_internal_leak(payload):
+            return _blocked(LEAK, src)
+        if _has_surrogate_codepoint(payload):
+            return _blocked(NON_SCALAR_UNICODE, src)
+    actions_by_id, catalog_fp = _validate_catalog(catalog)
+    if actions_by_id is None:
+        return _blocked(CATALOG_INVALID, "catalog")
+    if not _valid_permissions(permissions):
+        return _blocked(PERMISSIONS_INVALID, "permissions")
+    if action_id not in actions_by_id:
+        return _blocked(ACTION_NOT_IN_CATALOG, "catalog")
+
+    # 7) impact_context revalidé.
+    impact_context = envelope.get("impact_context")
+    if _has_internal_leak(impact_context):
+        return _blocked(LEAK, "impact_context")
+    if _has_surrogate_codepoint(impact_context):
+        return _blocked(NON_SCALAR_UNICODE, "impact_context")
     if not (isinstance(impact_context, dict) and set(impact_context) == _IMPACT_KEYS):
         return _blocked(IMPACT_CONTEXT_MALFORMED, "impact_context")
     if not (_is_pair_list(impact_context["assessed_target_refs"]) and _is_str_list(impact_context["risks"])):
@@ -255,7 +274,7 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
     permissions_required = sorted(action["permissions_required"])
     granted = set(permissions["granted"])
 
-    # 7) VERDICT (déterministe).
+    # 8) VERDICT (déterministe).
     approval_required = False
     approval_scope = None
     global_impact = None
@@ -290,7 +309,7 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
         "permissions_version": permissions["version"],
     }
 
-    # 8) action_plan_id (contexte COMPLET, sans self-ref) — seulement si un plan/approbation est émis.
+    # 9) action_plan_id (contexte COMPLET, sans self-ref) — seulement si un plan/approbation est émis.
     action_plan_id = None
     if action_status in (ACTION_PLAN_READY, HUMAN_APPROVAL_REQUIRED):
         payload = {
