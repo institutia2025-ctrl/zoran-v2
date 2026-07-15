@@ -47,6 +47,37 @@ Tout audit doit comporter :
 7. PROCHAINE ACTION ;
 8. verdict explicite : `CERTIFIED_10_10`, `FIX_REQUIRED`, `QUARANTINE` ou `INDETERMINATE`.
 
+## Règle de non-récurrence cohérente
+
+Toute erreur confirmée, reproduite ou admise par un agent doit produire un apprentissage persistant. Un correctif local seul est insuffisant.
+
+Pour chaque erreur confirmée, l’agent doit identifier et tracer :
+
+1. le claim rendu faux ;
+2. le contre-exemple minimal ;
+3. les cadres utilisés lors de la décision erronée ;
+4. les cadres manquants, insuffisants ou mal hiérarchisés ;
+5. la classe générale d’erreur ;
+6. l’invariant nouveau ;
+7. le guard ou veto associé ;
+8. le test de non-régression ;
+9. les conditions d’applicabilité ;
+10. l’impact global avant promotion canonique.
+
+Il est interdit de supprimer automatiquement un cadre parce qu’il a participé à une erreur. Il faut déterminer s’il était faux, incomplet, utilisé seul à tort ou mal pondéré. La correction peut imposer :
+
+- un cadre supplémentaire obligatoire ;
+- une combinaison minimale de cadres ;
+- l’interdiction pour un cadre de décider seul ;
+- un veto dans certaines conditions ;
+- une nouvelle hiérarchie entre cadres.
+
+Aucun contre-exemple confirmé ni aucune classe d’erreur canonisée ne peut recevoir à nouveau le même verdict dans des conditions équivalentes sans blocage explicite, nouvelle preuve ou override gouverné et traçable.
+
+Cette règle s’applique à tous les agents. Avant toute nouvelle décision, chaque agent doit vérifier le registre d’erreurs canonisées et les guards associés. Une erreur déjà apprise mais reproduite constitue une régression systémique et impose au minimum `FIX_REQUIRED`.
+
+Contrat futur associé : `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md`.
+
 ## Règles d’exécution
 
 - Observer le dépôt, le SHA, le diff et la CI avant de conclure.
