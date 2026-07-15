@@ -35,8 +35,10 @@ def _ref_from_selected(canons_selected):
             for x in c["canons"]:
                 if isinstance(x, str) and x and x not in ids:
                     ids.append(x)
-    return [{"id": i, "priority": 10, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
-             "applies_to_kinds": ["code", "text"]} for i in ids]
+    # Priorités DISTINCTES par id : par défaut aucune paire n'a 2 canons de même priorité -> 04 ne
+    # produirait aucun conflit -> les fixtures sans conflit restent réalistes (E11 reconstruit 04).
+    return [{"id": i, "priority": 10 + idx, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
+             "applies_to_kinds": ["code", "text"]} for idx, i in enumerate(ids)]
 
 
 def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint=None,
@@ -152,9 +154,13 @@ def test_seuil_veto_exact():
 
 
 def test_tension_compte_les_conflits():
+    # A et B MÊME priorité -> 04 produit exactement un conflit (k1,CODE,10,[A,B]) : E11 reconstruit.
+    ref = [{"id": "A", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
+           {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
     cd = _cd(
         canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
-        conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["A", "B"]}],
+        conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
+        referential_canons=ref,
     )
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP_DESCRIBE"], "operes": ["k1"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
@@ -380,6 +386,12 @@ _CANONS_M = [{"id": i, "priority": 10, "applies_to_frames": ["CODE", "TEXT", "ZZ
               "applies_to_kinds": ["code", "text"]} for i in ("C", "C2", "C3")]
 
 
+def _refp(*id_prio):
+    """Référentiel gelé à priorités EXPLICITES : _refp(('A',10),('B',10)) -> A et B priorité 10."""
+    return [{"id": i, "priority": p, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
+             "applies_to_kinds": ["code", "text"]} for i, p in id_prio]
+
+
 def test_04_omet_une_paire_de_02_bloque():
     from zoran_v2.coherence_engine import CD04
     cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
@@ -586,29 +598,102 @@ def test_05_conflit_canon_hors_referentiel_gele_bloque():
     assert v["status"] == BLOCKED and v["blocked_by"] == CD04
 
 
-def test_05_conflit_duplique_a_l_identique_bloque():
-    # E11 unicité : deux entrées de conflit IDENTIQUES double-comptent la tension -> BLOCKED.
-    # (04 peut émettre plusieurs conflits pour une même paire à des priorités DISTINCTES : légitime.)
+# --- GC-05-P1-E11-CONFLICT-EXACTNESS : 05 RECONSTRUIT l'ensemble autoritaire de conflits de 04 ---
+# (canons_selected[*].canons == canons applicables ; groupe de >=2 canons de MÊME priorité gelée,
+#  ids triés, UNE entrée par (paire, priorité)) et exige l'égalité EXACTE avec les conflits reçus.
+
+def _oa_k1():
+    return _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+
+
+def test_05_conflit_autoritaire_exact_passe():
+    # A,B même priorité -> 04 produit exactement (k1,CODE,10,[A,B]) trié. Reçu identique -> PASS.
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
+             referential_canons=_refp(("A", 10), ("B", 10)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == PASS and v["coherence"]["conflicts"] == 1
+
+
+def test_05_deux_conflits_meme_paire_priorites_reellement_distinctes_passent():
+    # 2 groupes de priorités DISTINCTES sur la même paire -> 04 produit 2 entrées -> PASS.
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B", "C", "D"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]},
+                        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "D"]}],
+             referential_canons=_refp(("A", 10), ("B", 10), ("C", 5), ("D", 5)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == PASS and v["coherence"]["conflicts"] == 2
+
+
+def test_05_conflit_priorite_mensongere_bloque():
+    # priority=99 impossible : A(10) et B(5) n'ont pas de priorité commune -> 04 ne produit AUCUN conflit.
     from zoran_v2.coherence_engine import CD04
-    conf = {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C2"]}
-    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
-             conflicts=[dict(conf), dict(conf)], referential_canons=_CANONS_M)
-    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
-    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 99, "canons": ["A", "B"]}],
+             referential_canons=_refp(("A", 10), ("B", 5)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
     assert v["status"] == BLOCKED and v["blocked_by"] == CD04
 
 
-def test_05_conflits_multiples_meme_paire_priorites_distinctes_passent():
-    # Non-régression : 04 émet légitimement plusieurs conflits pour la même paire (priorités != ) ;
-    # l'unicité porte sur l'ENTRÉE complète, PAS sur la paire -> ne doit PAS bloquer. Canons >=2 et
-    # tous dans le référentiel gelé.
-    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
-             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C2"]},
-                        {"object_key": "k1", "frame": "CODE", "priority": 3, "canons": ["C", "C3"]}],
-             referential_canons=_CANONS_M)
-    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
-    v = run_coherence_engine(_env(cd=cd, oa=oa))
-    assert v["status"] == PASS and v["coherence"]["conflicts"] == 2
+def test_05_conflit_canons_de_priorites_differentes_dans_une_entree_bloque():
+    # A(10) et B(5) réunis dans un conflit priority=10 -> 04 ne peut pas grouper des priorités != .
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
+             referential_canons=_refp(("A", 10), ("B", 5)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_conflit_reordonne_et_duplique_bloque():
+    # Deux entrées = même conflit avec IDs inversés : 04 trie et n'émet qu'une entrée -> BLOCKED.
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]},
+                        {"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["B", "A"]}],
+             referential_canons=_refp(("A", 10), ("B", 10)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_deux_entrees_meme_paire_meme_priorite_bloque():
+    # A,B,C même priorité -> 04 produit UNE entrée (A,B,C). Deux sous-entrées -> BLOCKED.
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B", "C"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]},
+                        {"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "C"]}],
+             referential_canons=_refp(("A", 10), ("B", 10), ("C", 10)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_conflit_groupe_partiel_bloque():
+    # groupe autoritaire (A,B,C) réduit à (A,B) -> BLOCKED.
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B", "C"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
+             referential_canons=_refp(("A", 10), ("B", 10), ("C", 10)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_conflit_autoritaire_omis_bloque():
+    # 04 aurait produit (A,B) mais conflicts=[] -> conflit OMIS -> BLOCKED (tension sous-estimée).
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             conflicts=[], referential_canons=_refp(("A", 10), ("B", 10)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_conflit_ordre_non_canonique_bloque():
+    # conflit unique mais ids NON triés (["B","A"]) -> 04 émet toujours trié -> BLOCKED.
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["B", "A"]}],
+             referential_canons=_refp(("A", 10), ("B", 10)))
+    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
 
 
 def test_05_garde_enumerante_preuves_consommees():

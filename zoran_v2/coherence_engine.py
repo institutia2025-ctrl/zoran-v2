@@ -276,32 +276,46 @@ def run_coherence_engine(envelope: dict) -> dict:
     if universe != authoritative_pairs:
         return _blocked(CD04)            # couverture 04 incomplète/inventée vs univers autoritaire 02
 
-    # E11 (PROVENANCE + STRUCTURE + UNICITÉ des conflits) : chaque conflit (04) alimente la tension
-    # (len(conflicts)). Il doit être STRUCTURELLEMENT complet (priority int ; canons = liste non vide de
-    # str uniques), rattaché à une paire de l'UNIVERS autoritaire (jamais inventé/hors-univers), et non
-    # DUPLIQUÉ à l'identique (sinon tension/S faussés). 04 peut légitimement émettre plusieurs conflits
-    # pour une même paire à des priorités DISTINCTES -> unicité sur l'ENTRÉE complète, PAS sur la paire.
-    # (Éléments non-dict et object_key/frame non-str déjà rejetés par _keys_all_str -> MALFORMED.)
-    seen_conflicts = set()
+    # E11 — REVALIDATION EXACTE de la preuve de tension (GC-05-P1-E11-CONFLICT-EXACTNESS). `conflicts`
+    # alimente tension = len(conflicts)/total_pairs. 05 ne valide PAS les conflits isolément (gardes
+    # contournables) : il RECONSTRUIT l'ensemble autoritaire que 04 peut produire à partir de
+    # canons_selected[*].canons (== canons APPLICABLES, cf. 04 `_conflicts_for`) + priorités du
+    # référentiel GELÉ, puis exige l'ÉGALITÉ EXACTE (multiset) avec les conflits reçus. 04 : un conflit
+    # = groupe de >=2 canons applicables de MÊME priorité, ids TRIÉS, UNE entrée par (paire, priorité).
+    # Ferme d'un coup : priorité inventée, mélange de priorités, doublon réordonné, multi-entrées même
+    # paire/priorité, groupe partiel, ordre non canonique, conflit omis/ajouté. (Non-dict et
+    # object_key/frame non-str déjà rejetés par _keys_all_str.)
+    priority_by_id = {}
+    for c in frozen_canons:
+        p = c.get("priority")
+        if isinstance(p, bool) or not isinstance(p, int):
+            return _blocked(FINGERPRINT_MISMATCH)  # référentiel gelé sans priorité entière -> fail-closed
+        priority_by_id[c["id"]] = p
+    # Ensemble ATTENDU (ce que 04 aurait produit). canons_selected[*].canons ⊆ allowed (GC-05-P1-007)
+    # -> tous les ids sont dans priority_by_id (pas de KeyError).
+    expected_conflicts = []
+    for c in canons_selected:
+        groups: dict = {}
+        for cid in c["canons"]:
+            groups.setdefault(priority_by_id[cid], []).append(cid)
+        for prio, ids in groups.items():
+            if len(ids) >= 2:
+                expected_conflicts.append((c["object_key"], c["frame"], prio, tuple(sorted(ids))))
+    # Ensemble REÇU. Structure minimale sûre (priority int ; canons = liste de str non vides) pour un
+    # tuple hashable/comparable ; l'égalité exacte ci-dessous tranche le reste.
+    received_conflicts = []
     for cf in conflicts:
         prio = cf.get("priority")
         ccanons = cf.get("canons")
         if isinstance(prio, bool) or not isinstance(prio, int):
             return _blocked(CD04)
-        # GC-05-P2 : un conflit = AU MOINS 2 canons de même priorité (contrat 04 `_conflicts_for`),
-        # str uniques non vides, et TOUS appartenant au référentiel GELÉ (allowed_canon_ids) — sinon
-        # un canon INVENTÉ resterait compté dans la tension et fausserait S (provenance interne).
-        if not (isinstance(ccanons, list) and len(ccanons) >= 2
-                and all(isinstance(x, str) and x for x in ccanons)
-                and len(ccanons) == len(set(ccanons))
-                and set(ccanons) <= allowed_canon_ids):
+        if not (isinstance(ccanons, list) and ccanons and all(isinstance(x, str) and x for x in ccanons)):
             return _blocked(CD04)
-        if _pair(cf["object_key"], cf["frame"]) not in universe:
-            return _blocked(CD04)
-        ident = (cf["object_key"], cf["frame"], prio, tuple(ccanons))
-        if ident in seen_conflicts:
-            return _blocked(CD04)
-        seen_conflicts.add(ident)
+        received_conflicts.append((cf["object_key"], cf["frame"], prio, tuple(ccanons)))
+    # Égalité EXACTE (multiset, ordre déterministe). received garde l'ORDRE reçu des ids -> un ordre non
+    # canonique diffère de expected (ids triés) -> BLOCKED.
+    if sorted(received_conflicts) != sorted(expected_conflicts):
+        return _blocked(CD04)
 
     total_pairs = len(universe)
 
