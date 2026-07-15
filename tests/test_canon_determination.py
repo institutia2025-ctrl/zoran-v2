@@ -20,6 +20,7 @@ from zoran_v2.canon_determination import (
     PROVENANCE_DECL,
     VERSION,
     _fingerprint,
+    _normalize_registry,
     run_canon_determination,
 )
 
@@ -76,6 +77,17 @@ def test_determination_nominale_priorite_desc():
     assert v["uncanonized"] == []
     assert _ids(v) == ["CANON_CONSTRAINT", "CANON_STRUCTURE"]
     assert v["canon_referential"]["priorities"] == {"CANON_CONSTRAINT": 40, "CANON_STRUCTURE": 30}
+    assert v["full_registry_commitment"] == {
+        "full_registry_fingerprint": _fingerprint(_normalize_registry(REG)),
+        "registry_version": "1.0.0",
+        "registry_source": "CANONS.yaml",
+        "normalization": {
+            "id": "zoran_v2.canon_determination._normalize_registry",
+            "version": "1.0.0",
+        },
+    }
+    assert len(v["canon_referential"]["canons"]) == 2
+    assert len(REG) == 3  # sous-ensemble applique et engagement complet restent distincts
     assert v["component"] == COMPONENT_ID and v["version"] == VERSION
 
 

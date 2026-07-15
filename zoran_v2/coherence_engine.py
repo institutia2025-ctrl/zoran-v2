@@ -22,7 +22,13 @@ from __future__ import annotations
 
 import statistics
 
-from zoran_v2.canon_determination import _fingerprint as _canon_fingerprint
+from zoran_v2.canon_determination import (
+    _clean_canon,
+    _fingerprint as _canon_fingerprint,
+    _full_registry_commitment,
+    _normalize_registry,
+    load_canon_registry,
+)
 
 COMPONENT_ID = "05_COHERENCE_ENGINE"
 VERSION = "1.0.0"
@@ -46,16 +52,19 @@ GOVERNANCE = {
         "NO_NETWORK",
         "NO_MEMORY",
         "REFERENTIAL_FINGERPRINT_VERIFIED",
+        "INDEPENDENT_FULL_REGISTRY_REQUIRED",
+        "FULL_REGISTRY_COMMITMENT_VERIFIED",
+        "COVERAGE_04_VS_02_AUTHORITATIVE",
         "RESOURCE_VETO_BEFORE_07",
         "FAIL_CLOSED",
         "DETERMINISTIC",
         "IMMUTABLE_SNAPSHOT",
     ],
-    "TRACEABILITY": "coherence {delta_phi,tension,sigma,S} + resource verdict ; fingerprint 04 verifie ; SHA git ; run CI",
+    "TRACEABILITY": "coherence {delta_phi,tension,sigma,S} + resource verdict ; sous-referentiel 04 et engagement registre complet independant verifies ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00/01/02/03/04 != PASS ou fingerprint 04 absent ; veto RESSOURCE si delta_phi < 0.5",
+    "ALERTE": "status=BLOCKED si 00/01/02/03/04 != PASS, fingerprint 04 absent, object_frame_map 02 malforme, ou couverture 04 != univers autoritaire 02 (paire omise/inventee) ; veto RESSOURCE si delta_phi < 0.5",
     "ANTI_REGRESSION": "tests formule canonique verrouillee + determinisme + fail-closed + veto ressource + gouvernance ; gate CI",
 }
 
@@ -130,13 +139,88 @@ def _frozen_referential_wellformed(frozen_canons: list) -> bool:
     KeyError/TypeError. Un record malformé (``{}``, ``[]``, str, ``id`` non-str/vide) -> fail-closed
     au lieu d'un crash (finding audit : 05 crashait sur un référentiel 04 malformé).
     """
+    seen_ids = set()
     for c in frozen_canons:
         if not (isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("id")):
             return False
+        if c["id"] in seen_ids:
+            return False
+        seen_ids.add(c["id"])
+        if isinstance(c.get("priority"), bool) or not isinstance(c.get("priority"), int):
+            return False
+        for field in ("applies_to_frames", "applies_to_kinds"):
+            values = c.get(field)
+            if not (isinstance(values, list)
+                    and all(isinstance(value, str) and value for value in values)
+                    and len(values) == len(set(values))):
+                return False
     return True
 
 
-def run_coherence_engine(envelope: dict) -> dict:
+def _object_kinds(objects):
+    """Map object_key -> kind for a strict object_discovery payload, else None."""
+    if not isinstance(objects, list):
+        return None
+    kinds = {}
+    for obj in objects:
+        if not (isinstance(obj, dict)
+                and isinstance(obj.get("object_key"), str) and obj["object_key"]
+                and isinstance(obj.get("kind"), str) and obj["kind"]):
+            return None
+        if obj["object_key"] in kinds:
+            return None
+        kinds[obj["object_key"]] = obj["kind"]
+    return kinds
+
+
+def _strict_normalized_full_registry(full_registry):
+    """Normalize the independent full registry, rejecting malformed or duplicate raw records."""
+    if not isinstance(full_registry, list):
+        return None
+    seen_ids = set()
+    for canon in full_registry:
+        if not isinstance(canon, dict):
+            return None
+        canon_id = canon.get("id")
+        priority = canon.get("priority")
+        if not (isinstance(canon_id, str) and canon_id
+                and not isinstance(priority, bool) and isinstance(priority, int)):
+            return None
+        if canon_id in seen_ids:
+            return None
+        seen_ids.add(canon_id)
+        for field in ("applies_to_frames", "applies_to_kinds"):
+            values = canon.get(field)
+            if not (isinstance(values, list)
+                    and all(isinstance(value, str) and value for value in values)
+                    and len(values) == len(set(values))):
+                return None
+        if _clean_canon(canon) is None:
+            return None
+    normalized = _normalize_registry(full_registry)
+    return normalized if len(normalized) == len(full_registry) else None
+
+
+def _object_frame_pairs(ofm):
+    """Couples (object_key, frame) AUTORITAIRES de 02 (object_frame_map), ou None si malformé.
+
+    Sert de référence de COUVERTURE : l'univers de 04 doit coïncider exactement (CSB-PROV-P1-004).
+    """
+    if not isinstance(ofm, list):
+        return None
+    pairs = set()
+    for e in ofm:
+        if not (isinstance(e, dict) and isinstance(e.get("object_key"), str) and e.get("object_key")):
+            return None
+        frames = e.get("frames")
+        if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+            return None
+        for f in frames:
+            pairs.add(_pair(e["object_key"], f))
+    return pairs
+
+
+def run_coherence_engine(envelope: dict, full_registry: list | None = None) -> dict:
     """Fonction PURE : envelope(00→04) -> cohérence S canonique + verdict ressource."""
     if not isinstance(envelope, dict):
         raise TypeError("envelope doit être un dict")
@@ -149,6 +233,13 @@ def run_coherence_engine(envelope: dict) -> dict:
             return _blocked(comp)
 
     cd = envelope["canon_determination"]
+    normalized_full_registry = _strict_normalized_full_registry(full_registry)
+    if normalized_full_registry is None:
+        return _blocked(CD04)
+    commitment = cd.get("full_registry_commitment")
+    if commitment != _full_registry_commitment(normalized_full_registry):
+        return _blocked(CD04)
+
     referential = cd.get("canon_referential")
     fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
     if not (isinstance(fingerprint, str) and fingerprint):
@@ -190,20 +281,146 @@ def run_coherence_engine(envelope: dict) -> dict:
     if not _keys_all_str(canons_selected, uncanonized, analysis, conflicts):
         return _blocked(MALFORMED)
 
+    # GC-05-P1-005 : chaque cible CANONISÉE (04) doit porter un `canons` = liste NON VIDE de chaînes
+    # UNIQUES non vides. Sinon la paire serait comptée canonisée/résolue SANS canon valide (faux
+    # delta_phi=1.0 / authorize_llm), et un conteneur malformé serait normalisé en silence (`or []`).
+    for c in canons_selected:
+        canons = c.get("canons")
+        if not (isinstance(canons, list) and canons
+                and all(isinstance(x, str) and x for x in canons)
+                and len(canons) == len(set(canons))):
+            return _blocked(CD04)
+
+    # GC-05-P1-007 (PROVENANCE des canons) : chaque canon SÉLECTIONNÉ doit appartenir au référentiel
+    # GELÉ 04. Un id bien formé mais ABSENT du référentiel (canon INVENTÉ) ferait compter la paire
+    # canonisée/résolue avec un canon inexistant -> faux delta_phi / sigma. `frozen_canons` déjà validé
+    # wellformed (ids str non vides) ; `canons` déjà validé (liste non vide de str uniques) -> accès direct.
+    allowed_canon_ids = {c["id"] for c in frozen_canons}
+    for c in canons_selected:
+        if not set(c["canons"]) <= allowed_canon_ids:
+            return _blocked(CD04)
+
+    # GC-05-P1-006 (EXISTENCE des opérants) : chaque entrée `analysis` (03) doit porter des opérants
+    # RÉELS = liste NON VIDE de str UNIQUES non vides. Contrat 03 : `analysis` = paires POURVUES
+    # d'opérants (les paires sans opérant vont dans `unanalyzed`) -> operants non vide est garanti pour
+    # toute entrée analysis. Sinon la paire est comptée « pourvue d'opérants » (résolue) SANS opérant
+    # valide -> faux delta_phi / authorize_llm. Fail-closed AVANT calcul. (Entrées non-dict déjà rejetées.)
+    for a in analysis:
+        ops = a.get("operants") if isinstance(a, dict) else None
+        if not (isinstance(ops, list) and ops
+                and all(isinstance(x, str) and x for x in ops)
+                and len(ops) == len(set(ops))):
+            return _blocked(OA03)
+
     operant_pairs = {
         _pair(a.get("object_key"), a.get("frame"))
         for a in analysis if isinstance(a, dict)
     }
-    # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées).
-    canonized_pairs = {
-        _pair(c.get("object_key"), c.get("frame"))
-        for c in canons_selected if isinstance(c, dict)
-    }
-    uncanon_pairs = {
-        _pair(u.get("object_key"), u.get("frame"))
-        for u in uncanonized if isinstance(u, dict)
-    }
+    # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées). On garde les LISTES
+    # avant conversion en set : sinon un doublon (même paire deux fois) ou une CONTRADICTION (paire
+    # à la fois canonisée ET non-canonisée) serait masqué par le set.
+    canonized_pair_list = [_pair(c.get("object_key"), c.get("frame"))
+                           for c in canons_selected if isinstance(c, dict)]
+    uncanon_pair_list = [_pair(u.get("object_key"), u.get("frame"))
+                         for u in uncanonized if isinstance(u, dict)]
+    canonized_pairs = set(canonized_pair_list)
+    uncanon_pairs = set(uncanon_pair_list)
+
+    # CSB-PROV-P1-004 (contradiction interne 04) : une paire ne peut pas être à la fois canonisée ET
+    # non-canonisée, ni apparaître en DOUBLE dans une liste — sinon delta_phi/S seraient faussés
+    # (paire comptée résolue tout en étant déclarée uncanonized). Fail-closed AVANT tout calcul.
+    if (len(canonized_pair_list) != len(canonized_pairs)
+            or len(uncanon_pair_list) != len(uncanon_pairs)
+            or (canonized_pairs & uncanon_pairs)):
+        return _blocked(CD04)
+
     universe = canonized_pairs | uncanon_pairs
+
+    # CSB-PROV-P1-004 : l'univers vu par 04 doit COUVRIR EXACTEMENT les couples autoritaires de 02
+    # (object_frame_map). Un payload 04 (déclaré PASS) qui OMET une paire présente dans 02 — ou qui
+    # en INVENTE une — fausserait delta_phi/S et autoriserait le LLM « à couverture trouée ».
+    # 05 recoupe donc 04 contre 02 (comme 04 recoupe 03 contre 01/02), fail-closed.
+    fs = envelope["frame_selection"]
+    authoritative_pairs = _object_frame_pairs(fs.get("object_frame_map"))
+    if authoritative_pairs is None:
+        return _blocked(FS02)            # object_frame_map (02) malformé
+    if universe != authoritative_pairs:
+        return _blocked(CD04)            # couverture 04 incomplète/inventée vs univers autoritaire 02
+
+    # Rebuild the exact 04 selection from authoritative objects, pairs and frozen applicability.
+    # This closes incompatible frame/kind, omission, invention and non-canonical ordering before S.
+    kind_by_object_key = _object_kinds(envelope["object_discovery"].get("objects"))
+    if kind_by_object_key is None:
+        return _blocked(OD01)
+    if any(object_key not in kind_by_object_key for object_key, _frame in authoritative_pairs):
+        return _blocked(CD04)
+
+    expected_selected = {}
+    expected_uncanonized = set()
+    for object_key, frame in authoritative_pairs:
+        kind = kind_by_object_key[object_key]
+        applicable = [canon for canon in normalized_full_registry
+                      if frame in canon["applies_to_frames"] and kind in canon["applies_to_kinds"]]
+        applicable.sort(key=lambda canon: (-canon["priority"], canon["id"]))
+        if applicable:
+            expected_selected[(object_key, frame)] = tuple(canon["id"] for canon in applicable)
+        else:
+            expected_uncanonized.add((object_key, frame))
+
+    received_selected = {
+        (entry["object_key"], entry["frame"]): tuple(entry["canons"])
+        for entry in canons_selected
+    }
+    if received_selected != expected_selected or uncanon_pairs != expected_uncanonized:
+        return _blocked(CD04)
+
+    full_by_id = {canon["id"]: canon for canon in normalized_full_registry}
+    expected_frozen_ids = sorted({canon_id for ids in expected_selected.values() for canon_id in ids})
+    expected_frozen_canons = [full_by_id[canon_id] for canon_id in expected_frozen_ids]
+    if frozen_canons != expected_frozen_canons:
+        return _blocked(CD04)
+
+    # E11 — REVALIDATION EXACTE de la preuve de tension (GC-05-P1-E11-CONFLICT-EXACTNESS). `conflicts`
+    # alimente tension = len(conflicts)/total_pairs. 05 ne valide PAS les conflits isolément (gardes
+    # contournables) : il RECONSTRUIT l'ensemble autoritaire que 04 peut produire à partir de
+    # canons_selected[*].canons (== canons APPLICABLES, cf. 04 `_conflicts_for`) + priorités du
+    # référentiel GELÉ, puis exige l'ÉGALITÉ EXACTE (multiset) avec les conflits reçus. 04 : un conflit
+    # = groupe de >=2 canons applicables de MÊME priorité, ids TRIÉS, UNE entrée par (paire, priorité).
+    # Ferme d'un coup : priorité inventée, mélange de priorités, doublon réordonné, multi-entrées même
+    # paire/priorité, groupe partiel, ordre non canonique, conflit omis/ajouté. (Non-dict et
+    # object_key/frame non-str déjà rejetés par _keys_all_str.)
+    priority_by_id = {}
+    for c in normalized_full_registry:
+        p = c.get("priority")
+        if isinstance(p, bool) or not isinstance(p, int):
+            return _blocked(FINGERPRINT_MISMATCH)  # référentiel gelé sans priorité entière -> fail-closed
+        priority_by_id[c["id"]] = p
+    # Ensemble ATTENDU (ce que 04 aurait produit). canons_selected[*].canons ⊆ allowed (GC-05-P1-007)
+    # -> tous les ids sont dans priority_by_id (pas de KeyError).
+    expected_conflicts = []
+    for c in canons_selected:
+        groups: dict = {}
+        for cid in c["canons"]:
+            groups.setdefault(priority_by_id[cid], []).append(cid)
+        for prio, ids in groups.items():
+            if len(ids) >= 2:
+                expected_conflicts.append((c["object_key"], c["frame"], prio, tuple(sorted(ids))))
+    # Ensemble REÇU. Structure minimale sûre (priority int ; canons = liste de str non vides) pour un
+    # tuple hashable/comparable ; l'égalité exacte ci-dessous tranche le reste.
+    received_conflicts = []
+    for cf in conflicts:
+        prio = cf.get("priority")
+        ccanons = cf.get("canons")
+        if isinstance(prio, bool) or not isinstance(prio, int):
+            return _blocked(CD04)
+        if not (isinstance(ccanons, list) and ccanons and all(isinstance(x, str) and x for x in ccanons)):
+            return _blocked(CD04)
+        received_conflicts.append((cf["object_key"], cf["frame"], prio, tuple(ccanons)))
+    # Égalité EXACTE (multiset, ordre déterministe). received garde l'ORDRE reçu des ids -> un ordre non
+    # canonique diffère de expected (ids triés) -> BLOCKED.
+    if sorted(received_conflicts) != sorted(expected_conflicts):
+        return _blocked(CD04)
+
     total_pairs = len(universe)
 
     # ΔΦ = part des paires résolues (canonisées ET pourvues d'opérants).
@@ -218,9 +435,9 @@ def run_coherence_engine(envelope: dict) -> dict:
     # de l'univers (un objet à 0 canon compte comme 0 -> dispersion non sous-estimée).
     all_objects = {ok for (ok, _fr) in universe}
     canons_by_object = {ok: set() for ok in all_objects}
+    # `canons` déjà validé (liste non vide de str uniques, GC-05-P1-005) -> accès direct, sans `or []`.
     for c in canons_selected:
-        if isinstance(c, dict):
-            canons_by_object.setdefault(c.get("object_key"), set()).update(c.get("canons") or [])
+        canons_by_object.setdefault(c["object_key"], set()).update(c["canons"])
     counts = [len(canons_by_object[ok]) for ok in sorted(all_objects)]
     if len(counts) >= 2 and statistics.mean(counts) > 0:
         sigma = round(statistics.pstdev(counts) / statistics.mean(counts), 6)
@@ -266,4 +483,4 @@ def run_coherence_engine(envelope: dict) -> dict:
 
 
 def main(envelope: dict) -> dict:
-    return run_coherence_engine(envelope)
+    return run_coherence_engine(envelope, load_canon_registry())
