@@ -24,10 +24,12 @@ GOVERNANCE = {
         "LLM_IS_TOOL_NOT_ENGINE",
         "SINGLE_CALL_NO_PRECHOICES",
         "REQUIRES_05_06_AUTHORIZATION",
+        "REQUEST_SCHEMA_VALIDATED_06_TO_07",
         "INJECTED_CLIENT",
         "NO_NETWORK_WITHOUT_CLIENT",
         "NO_MEMORY",
         "REFERENTIAL_FINGERPRINT_CARRIED",
+        "NO_PII_TO_LLM",
         "FAIL_CLOSED",
         "IMMUTABLE_SNAPSHOT",
     ],
@@ -35,7 +37,7 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest (client mock) + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..06 != PASS ou client manquant alors qu'autorise ; executed=False si veto ou erreur client",
+    "ALERTE": "status=BLOCKED si 00..06 != PASS, client manquant alors qu'autorise, ou llm_request 06 hors schema/PII (frontiere 06->07) ; executed=False si veto ou erreur client",
     "ANTI_REGRESSION": "tests veto respecte + appel unique + erreur client geree + fail-closed + gouvernance ; gate CI",
 }
 
@@ -68,7 +70,57 @@ _STEPS = (
 )
 NO_CLIENT = "07_LLM_EXECUTION_NO_CLIENT"
 CLIENT_ERROR = "07_LLM_CLIENT_ERROR"
+MALFORMED_REQUEST = "07_LLM_REQUEST_MALFORMED"
 ORDER_KEY = "appel_llm_unique_sur_requete_06"
+
+# --- Contrat de la frontière 06 -> 07 : schéma EXACT de la requête produite par
+# 06_LLM_REQUEST_BUILD. 07 ne transmet au client QUE ce qui correspond à ce contrat ;
+# toute déviation (absente/None, non-dict, hors schéma, PII) => fail-closed AVANT tout appel.
+_EXPECTED_INSTRUCTION_KIND = "STRUCTURED_ANALYSIS_V1"
+_REQUIRED_REQUEST_KEYS = frozenset((
+    "instruction_kind", "referential_fingerprint", "coherence_S",
+    "frames", "targets", "pii_policy",
+))
+_ALLOWED_TARGET_KEYS = frozenset((
+    "object_public_id", "kind", "frame", "canons", "operants",
+))
+# object_key = clé DÉRIVÉE du contenu utilisateur (01) ; ne doit JAMAIS atteindre le LLM (RULE-078).
+_PII_FORBIDDEN_KEYS = frozenset(("object_key", "object_id_map", "normalized", "raw_content"))
+
+
+def _request_well_formed(request) -> bool:
+    """Valide la requête 06 AVANT tout appel client : structure EXACTE + aucune PII.
+
+    Fail-closed (finding audit P1, frontière 06->07) : une enveloppe 06 AUTORISÉE dont la
+    ``llm_request`` est absente/None, non-dict, hors schéma, ou porteuse d'une clé PII
+    (``object_key``) NE DOIT PAS déclencher d'appel LLM.
+    """
+    if not isinstance(request, dict):
+        return False
+    if set(request) != _REQUIRED_REQUEST_KEYS:  # clés EXACTES -> bloque tout ajout (ex. object_key racine)
+        return False
+    if request.get("instruction_kind") != _EXPECTED_INSTRUCTION_KIND:
+        return False
+    fingerprint = request.get("referential_fingerprint")
+    if not (isinstance(fingerprint, str) and fingerprint):
+        return False
+    frames = request.get("frames")
+    if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+        return False
+    targets = request.get("targets")
+    if not isinstance(targets, list):
+        return False
+    for t in targets:
+        if not isinstance(t, dict):
+            return False
+        keys = set(t)
+        if not keys.issubset(_ALLOWED_TARGET_KEYS):  # clé hors schéma (ex. object_key) -> fuite -> refus
+            return False
+        if keys & _PII_FORBIDDEN_KEYS:
+            return False
+        if not isinstance(t.get("object_public_id"), str):
+            return False
+    return True
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
@@ -109,6 +161,11 @@ def run_llm_execution(envelope: dict, llm_client=None) -> dict:
         return _result(executed=False, response=None, error=None)
 
     request = lrb.get("llm_request")
+    # Frontière 06->07 fail-closed : 06 a autorisé, mais on ne transmet RIEN au client tant que
+    # la requête n'est pas STRUCTURELLEMENT conforme au contrat 06 (finding audit P1). Une enveloppe
+    # 06 malformée/tamperée (llm_request=None, non-dict, ou portant un object_key) est bloquée ICI.
+    if not _request_well_formed(request):
+        return _blocked(MALFORMED_REQUEST)
     if not callable(llm_client):
         return _blocked(NO_CLIENT)  # autorisé mais pas de client -> fail-closed
 

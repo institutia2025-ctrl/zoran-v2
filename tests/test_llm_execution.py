@@ -12,6 +12,7 @@ from zoran_v2.llm_execution import (
     COMPONENT_ID,
     GOVERNANCE,
     GOVERNANCE_REQUIRED_KEYS,
+    MALFORMED_REQUEST,
     NO_CLIENT,
     ORDER_KEY,
     OUTPUT_KEYS,
@@ -20,6 +21,33 @@ from zoran_v2.llm_execution import (
     VERSION,
     run_llm_execution,
 )
+from zoran_v2.llm_request_build import run_llm_request_build
+
+
+def _real_06_request():
+    """Requête RÉELLE produite par 06_LLM_REQUEST_BUILD (source de vérité du schéma 06->07).
+
+    Prouve que 07 accepte EXACTEMENT ce que 06 émet (aucun faux blocage), et fournit une base
+    valide que les tests de régression dégradent pour vérifier le fail-closed.
+    """
+    env06 = {
+        "runtime_check": {"status": "PASS"},
+        "object_discovery": {"status": "PASS", "objects": [{"object_key": "k1", "kind": "code"}]},
+        "frame_selection": {"status": "PASS"},
+        "operants_operes": {"status": "PASS",
+                            "analysis": [{"object_key": "k1", "frame": "CODE", "operants": ["OP_DESCRIBE"]}]},
+        "canon_determination": {"status": "PASS",
+            "canons_selected": [{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+            "canon_referential": {"fingerprint": "FP", "canons": [], "priorities": {}}},
+        "coherence_engine": {"status": "PASS", "coherence": {"S": 1.0},
+                            "resource": {"authorize_llm": True, "delta_phi_min": 0.5}},
+    }
+    out = run_llm_request_build(env06)
+    assert out["authorized"] is True and out["llm_request"] is not None
+    return out["llm_request"]
+
+
+_VALID_REQUEST = _real_06_request()
 
 
 def _env(authorized=True, request=None, **overrides):
@@ -28,7 +56,8 @@ def _env(authorized=True, request=None, **overrides):
         "operants_operes", "canon_determination", "coherence_engine")}
     base["llm_request_build"] = {
         "status": "PASS", "authorized": authorized,
-        "llm_request": request if request is not None else {"instruction_kind": "STRUCTURED_ANALYSIS_V1"},
+        # Défaut = requête VALIDE (schéma 06). Les tests de frontière passent une requête dégradée.
+        "llm_request": request if request is not None else dict(_VALID_REQUEST),
     }
     base.update(overrides)
     return base
@@ -62,10 +91,10 @@ def test_appel_unique_sur_requete_autorisee():
     def client(req):
         calls.append(req)
         return {"text": "réponse LLM"}
-    v = run_llm_execution(_env(request={"k": 1}), client)
+    v = run_llm_execution(_env(request=dict(_VALID_REQUEST)), client)
     assert v["status"] == PASS and v["executed"] is True
     assert v["response"] == {"text": "réponse LLM"} and v["error"] is None
-    assert len(calls) == 1 and calls[0] == {"k": 1}  # appel UNIQUE, requête 06 transmise
+    assert len(calls) == 1 and calls[0] == _VALID_REQUEST  # appel UNIQUE, requête 06 transmise telle quelle
 
 
 def test_veto_respecte_aucun_appel():
@@ -94,7 +123,7 @@ def test_erreur_client_fail_closed_status_blocked():
 
 
 def test_immutabilite_envelope():
-    e = _env(request={"k": 1})
+    e = _env(request=dict(_VALID_REQUEST))
     snap = copy.deepcopy(e)
     run_llm_execution(e, lambda r: "ok")
     assert e == snap
@@ -116,3 +145,80 @@ def test_provenance_decl_conforme():
     assert PROVENANCE_DECL["CANONICAL_SPEC"] == "SPEC_ENGINE_07_LLM_EXECUTION"
     assert PROVENANCE_DECL["BEHAVIOR_FLAGS"]["requests_llm_prechoices"] is False
     assert COMPONENT_ID == "07_LLM_EXECUTION" and VERSION == "1.0.0"
+
+
+# --- RÉGRESSIONS audit ChatGPT global coherence 2026-07-15 : frontière 06->07 fail-closed (P1) ---
+
+def test_requete_reelle_06_acceptee_pas_de_faux_blocage():
+    # Invariant frontière : 07 doit accepter EXACTEMENT la requête produite par 06 (pas de faux BLOCKED).
+    calls = []
+    v = run_llm_execution(_env(request=_real_06_request()), lambda r: calls.append(r) or {"ok": True})
+    assert v["status"] == PASS and v["executed"] is True
+    assert len(calls) == 1
+
+
+def test_requete_absente_ou_none_bloque_sans_appel():
+    # 06 autorisée mais llm_request=None (enveloppe malformée) -> AUCUN appel LLM, fail-closed.
+    calls = []
+    v = run_llm_execution(_env(authorized=True, request=None, llm_request_build={
+        "status": "PASS", "authorized": True, "llm_request": None}), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+    assert v["executed"] is False and calls == []
+
+
+def test_requete_non_dict_bloque_sans_appel():
+    calls = []
+    v = run_llm_execution(_env(request="pas-un-dict"), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+    assert calls == []
+
+
+def test_requete_hors_schema_bloque_sans_appel():
+    # Requête à clés incomplètes (schéma 06 non respecté) -> fail-closed.
+    calls = []
+    v = run_llm_execution(_env(request={"instruction_kind": "STRUCTURED_ANALYSIS_V1"}), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+    assert calls == []
+
+
+def test_instruction_kind_inattendu_bloque():
+    bad = dict(_VALID_REQUEST, instruction_kind="ARBITRARY_INJECTION")
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_requete_avec_object_key_pii_bloque_sans_appel():
+    # Tentative de fuite : une cible porte un object_key (PII dérivée du contenu utilisateur).
+    # 07 DOIT bloquer AVANT d'appeler le client (RULE-078 à la frontière 06->07).
+    leaky_target = dict(_VALID_REQUEST["targets"][0], object_key="code\x1fjean-dupont-dossier")
+    bad = dict(_VALID_REQUEST, targets=[leaky_target])
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+    assert v["executed"] is False and calls == []  # AUCUNE PII transmise au LLM
+
+
+def test_object_key_racine_bloque():
+    bad = dict(_VALID_REQUEST, object_key="code\x1fpii")
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_target_non_dict_bloque():
+    bad = dict(_VALID_REQUEST, targets=["pas-un-dict"])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_frames_non_str_bloque():
+    bad = dict(_VALID_REQUEST, frames=["CODE", 123])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_fingerprint_vide_bloque():
+    bad = dict(_VALID_REQUEST, referential_fingerprint="")
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST

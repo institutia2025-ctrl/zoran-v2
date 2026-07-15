@@ -105,15 +105,34 @@ def _pair(entry_key, frame):
 
 
 def _keys_all_str(*lists) -> bool:
-    """True ssi tout object_key/frame des entrées est une str (hashable, bien formé).
+    """True ssi CHAQUE entrée est un dict avec object_key ET frame str (hashable, bien formé).
 
-    Empêche un TypeError (object_key=liste -> unhashable) : entrée malformée -> fail-closed.
+    Un élément non-dict est REJETÉ, PAS ignoré : sinon un enregistrement malformé serait
+    écarté silencieusement et pourrait mener à un PASS trompeur (finding audit global).
+    Empêche aussi le TypeError (object_key=liste -> unhashable). Un conteneur non-liste est
+    lui-même rejeté (jamais d'itération sur un scalaire). Entrée malformée -> fail-closed.
     """
     for lst in lists:
+        if not isinstance(lst, list):
+            return False
         for e in lst:
-            if isinstance(e, dict):
-                if not (isinstance(e.get("object_key"), str) and isinstance(e.get("frame"), str)):
-                    return False
+            if not isinstance(e, dict):
+                return False
+            if not (isinstance(e.get("object_key"), str) and isinstance(e.get("frame"), str)):
+                return False
+    return True
+
+
+def _frozen_referential_wellformed(frozen_canons: list) -> bool:
+    """True ssi chaque record du référentiel GELÉ (04) est un dict avec un `id` str non vide.
+
+    Condition NÉCESSAIRE pour recalculer le fingerprint (04 trie sur ``c["id"]``) SANS lever
+    KeyError/TypeError. Un record malformé (``{}``, ``[]``, str, ``id`` non-str/vide) -> fail-closed
+    au lieu d'un crash (finding audit : 05 crashait sur un référentiel 04 malformé).
+    """
+    for c in frozen_canons:
+        if not (isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("id")):
+            return False
     return True
 
 
@@ -137,7 +156,15 @@ def run_coherence_engine(envelope: dict) -> dict:
     # Ré-vérification RÉELLE du gel : recalculer le sha256 des canons et comparer.
     # (Sinon un référentiel modifié gardant le même texte de fingerprint passerait.)
     frozen_canons = referential.get("canons")
-    if not isinstance(frozen_canons, list) or _canon_fingerprint(frozen_canons) != fingerprint:
+    # Un référentiel 04 malformé (record non-dict, ou `id` non-str) ferait lever _fingerprint
+    # (KeyError/TypeError sur c["id"]) AVANT toute comparaison : on valide D'ABORD -> fail-closed.
+    if not isinstance(frozen_canons, list) or not _frozen_referential_wellformed(frozen_canons):
+        return _blocked(FINGERPRINT_MISMATCH)
+    try:
+        recomputed_fp = _canon_fingerprint(frozen_canons)
+    except Exception:  # noqa: BLE001 — référentiel 04 non-sérialisable/inattendu -> fail-closed, jamais un crash
+        return _blocked(FINGERPRINT_MISMATCH)
+    if recomputed_fp != fingerprint:
         return _blocked(FINGERPRINT_MISMATCH)
 
     canons_selected = cd.get("canons_selected") or []
