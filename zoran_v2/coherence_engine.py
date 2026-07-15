@@ -214,15 +214,24 @@ def run_coherence_engine(envelope: dict) -> dict:
         _pair(a.get("object_key"), a.get("frame"))
         for a in analysis if isinstance(a, dict)
     }
-    # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées).
-    canonized_pairs = {
-        _pair(c.get("object_key"), c.get("frame"))
-        for c in canons_selected if isinstance(c, dict)
-    }
-    uncanon_pairs = {
-        _pair(u.get("object_key"), u.get("frame"))
-        for u in uncanonized if isinstance(u, dict)
-    }
+    # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées). On garde les LISTES
+    # avant conversion en set : sinon un doublon (même paire deux fois) ou une CONTRADICTION (paire
+    # à la fois canonisée ET non-canonisée) serait masqué par le set.
+    canonized_pair_list = [_pair(c.get("object_key"), c.get("frame"))
+                           for c in canons_selected if isinstance(c, dict)]
+    uncanon_pair_list = [_pair(u.get("object_key"), u.get("frame"))
+                         for u in uncanonized if isinstance(u, dict)]
+    canonized_pairs = set(canonized_pair_list)
+    uncanon_pairs = set(uncanon_pair_list)
+
+    # CSB-PROV-P1-004 (contradiction interne 04) : une paire ne peut pas être à la fois canonisée ET
+    # non-canonisée, ni apparaître en DOUBLE dans une liste — sinon delta_phi/S seraient faussés
+    # (paire comptée résolue tout en étant déclarée uncanonized). Fail-closed AVANT tout calcul.
+    if (len(canonized_pair_list) != len(canonized_pairs)
+            or len(uncanon_pair_list) != len(uncanon_pairs)
+            or (canonized_pairs & uncanon_pairs)):
+        return _blocked(CD04)
+
     universe = canonized_pairs | uncanon_pairs
 
     # CSB-PROV-P1-004 : l'univers vu par 04 doit COUVRIR EXACTEMENT les couples autoritaires de 02

@@ -397,3 +397,33 @@ def test_04_couvre_exactement_02_passe():
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))  # ofm auto = exactement (k1,CODE)
     assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
+
+
+def test_04_meme_paire_canonisee_ET_uncanonized_bloque():
+    from zoran_v2.coherence_engine import CD04
+    # contradiction interne 04 : (k1,CODE) a la fois canonisee ET non-canonisee -> BLOCKED (le set
+    # masquait la contradiction ; delta_phi=1.0/authorize_llm=True devenaient possibles a tort).
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             uncanonized=[{"object_key": "k1", "frame": "CODE"}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_04_doublon_dans_canons_selected_bloque():
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]},
+                              {"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_04_doublon_dans_uncanonized_bloque():
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(uncanonized=[{"object_key": "k2", "frame": "TEXT"},
+                          {"object_key": "k2", "frame": "TEXT"}],
+             referential_canons=_CANONS)
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
