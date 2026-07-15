@@ -6,7 +6,8 @@ les conditions de reprise, en UN objet-clôture déterministe, immuable, traçab
 
 Invariant central (Fred 2026-07-15) : 11 REJOUE déterministiquement 09 (depuis 00→08) et 10 (depuis 00→09 +
 catalogue canonique + permissions + impact_context) et exige `received == expected`, AVANT toute lecture de
-human_decision / execution_result / provenance / ci_refs / closed_at_context. Toute divergence → BLOCKED.
+autorités humaines/exécuteurs, puis human_decision / execution_result / provenance / ci_refs / closed_at_context.
+Toute divergence → BLOCKED.
 
 Réutilise les primitives certifiées de 09 (`_canonical_sha256` via `_fingerprint`, `_has_surrogate_codepoint`,
 `_has_internal_leak`) et rejoue 09/10 via leurs fonctions pures. NO_LLM / NO_NETWORK / NO_ACTION_EXECUTION /
@@ -40,13 +41,15 @@ GOVERNANCE = {
         "INTEGRITY_REVALIDATION_NOT_REJUDGMENT", "DETERMINISTIC_REPLAY_09_AND_10",
         "CLOSURE_COMPLETENESS", "EXTERNAL_RESULT_INJECTED_AND_VERIFIED",
         "HUMAN_GO_SCOPE_BOUNDED_EXACT", "NO_TIME_INVENTION",
+        "INDEPENDENT_HUMAN_AUTHORITY", "INDEPENDENT_EXECUTOR_AUTHORITY",
+        "EXACT_AUTHORITY_SCOPE", "AUTHORITY_FINGERPRINT_REVALIDATED",
     ],
-    "TRACEABILITY": "objet-cloture {closure_id, close_status, pipeline_gate_digest 00-10, final_state, human_decision_ref, execution_result_ref, anomalies, resumption_conditions, rollback_plan_ref, CONTENT_SHA256} ; 09 et 10 rejoues et compares exactement ; primitive _fingerprint reutilisee ; SHA git ; run CI",
+    "TRACEABILITY": "objet-cloture {closure_id, close_status, pipeline_gate_digest 00-10, final_state, human_decision_ref, execution_result_ref, anomalies, resumption_conditions, rollback_plan_ref, CONTENT_SHA256} ; 09/10 rejoues ; autorites versionnees injectees, fingerprints recalcules et scopes exacts ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..10 != PASS, replay 09 ou 10 divergent, resultat d'execution/decision humaine falsifie/incomplet/hors-scope, execution sans plan/sans GO/apres refus, provenance/ci/closed_at absents, fuite ou surrogate",
-    "ANTI_REGRESSION": "tests contre-exemples adversariaux + replay exact 09 et 10 AVANT lecture des entrees de cloture + 10 statuts de cloture + appariement de scope exact + determinisme/contexte closure_id + anti-fuite/surrogate + gouvernance ; gate CI",
+    "ALERTE": "status=BLOCKED si 00..10 != PASS, replay 09/10 divergent, autorite absente/divergente/hors-scope, resultat d'execution/decision humaine falsifie/incomplet, execution sans plan/sans GO/apres refus, provenance/ci/closed_at absents, fuite ou surrogate",
+    "ANTI_REGRESSION": "tests adversariaux + replay 09/10 puis autorites engagees AVANT entrees de cloture + identites/executants/actions/scopes/provenances exacts + 10 statuts + determinisme + anti-fuite/surrogate ; gate CI",
 }
 
 GOVERNANCE_REQUIRED_KEYS = (
@@ -97,6 +100,10 @@ EXEC_UNEXPECTED = "11_CLOSE_EXEC_UNEXPECTED"
 HUMAN_MALFORMED = "11_CLOSE_HUMAN_MALFORMED"
 HUMAN_SCOPE_MISMATCH = "11_CLOSE_HUMAN_SCOPE_MISMATCH"
 HUMAN_UNEXPECTED = "11_CLOSE_HUMAN_UNEXPECTED"
+AUTHORITY_MALFORMED = "11_CLOSE_AUTHORITY_MALFORMED"
+AUTHORITY_FINGERPRINT_MISMATCH = "11_CLOSE_AUTHORITY_FINGERPRINT_MISMATCH"
+HUMAN_UNAUTHORIZED = "11_CLOSE_HUMAN_UNAUTHORIZED"
+EXECUTOR_UNAUTHORIZED = "11_CLOSE_EXECUTOR_UNAUTHORIZED"
 PROVENANCE_MALFORMED = "11_CLOSE_PROVENANCE_MALFORMED"
 CI_REFS_MALFORMED = "11_CLOSE_CI_REFS_MALFORMED"
 CLOSED_AT_MALFORMED = "11_CLOSE_CLOSED_AT_MALFORMED"
@@ -129,6 +136,12 @@ _HUMAN_KEYS = frozenset((
     "decision", "identity_ref", "decided_at_context", "provenance_refs", "CONTENT_SHA256",
 ))
 _HUMAN_DECISION_ENUM = frozenset(("APPROVED", "DECLINED"))
+_HUMAN_AUTH_KEYS = frozenset(("version", "source", "identities"))
+_IDENTITY_KEYS = frozenset(("identity_ref", "roles", "authorizations"))
+_HUMAN_AUTHZ_KEYS = frozenset(("role", "action_plan_id", "action_id", "target_refs", "provenance_refs"))
+_EXECUTOR_AUTH_KEYS = frozenset(("version", "source", "executors"))
+_EXECUTOR_KEYS = frozenset(("executor_id", "authorizations"))
+_EXECUTOR_AUTHZ_KEYS = frozenset(("action_plan_id", "action_id", "target_refs", "provenance_refs"))
 
 ORDER_KEY = "trace_consolidation_puis_cloture"
 
@@ -165,6 +178,54 @@ def _valid_refs(refs) -> bool:
     return isinstance(refs, list) and bool(refs) and all(isinstance(r, str) and r for r in refs)
 
 
+def _validate_authority(registry, commitment, kind):
+    if _has_internal_leak(registry) or _has_surrogate_codepoint(registry):
+        raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority"))
+    if not (isinstance(commitment, str) and len(commitment) == 64
+            and _canonical_sha256(registry) == commitment):
+        raise ValueError((AUTHORITY_FINGERPRINT_MISMATCH, f"{kind}_authority.fingerprint"))
+    top_keys = _HUMAN_AUTH_KEYS if kind == "human" else _EXECUTOR_AUTH_KEYS
+    list_key = "identities" if kind == "human" else "executors"
+    expected_source = "HUMAN_AUTHORITY_REGISTRY" if kind == "human" else "EXECUTOR_AUTHORITY_REGISTRY"
+    if not (isinstance(registry, dict) and set(registry) == top_keys
+            and isinstance(registry["version"], str) and registry["version"]
+            and registry["source"] == expected_source
+            and isinstance(registry[list_key], list) and registry[list_key]):
+        raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority"))
+    for principal in registry[list_key]:
+        principal_keys = _IDENTITY_KEYS if kind == "human" else _EXECUTOR_KEYS
+        id_key = "identity_ref" if kind == "human" else "executor_id"
+        if not (isinstance(principal, dict) and set(principal) == principal_keys
+                and isinstance(principal[id_key], str) and principal[id_key]
+                and isinstance(principal["authorizations"], list)):
+            raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
+        if kind == "human" and not _valid_refs(principal["roles"]):
+            raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
+        auth_keys = _HUMAN_AUTHZ_KEYS if kind == "human" else _EXECUTOR_AUTHZ_KEYS
+        for auth in principal["authorizations"]:
+            if not (isinstance(auth, dict) and set(auth) == auth_keys
+                    and _valid_refs(auth["provenance_refs"])):
+                raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.authorizations"))
+    return registry[list_key]
+
+
+def _exact_authorization(principals, id_key, principal_id, plan, provenance_refs, role=None):
+    for principal in principals:
+        if principal[id_key] != principal_id:
+            continue
+        if role is not None and role not in principal["roles"]:
+            continue
+        for auth in principal["authorizations"]:
+            if (role is not None and auth.get("role") != role):
+                continue
+            if (auth["action_plan_id"] == plan["action_plan_id"]
+                    and auth["action_id"] == plan["action_id"]
+                    and auth["target_refs"] == plan["target_refs"]
+                    and auth["provenance_refs"] == provenance_refs):
+                return True
+    return False
+
+
 def _close_from_exec(execution_result: dict):
     """Résultat d'exécution vérifié -> (close_status, anomalies). Frontière DOUCE (status reste PASS)."""
     status = execution_result["execution_status"]
@@ -176,7 +237,7 @@ def _close_from_exec(execution_result: dict):
     return CLOSED_ANOMALY, anomalies  # PARTIAL
 
 
-def _validate_execution_result(execution_result, plan):
+def _validate_execution_result(execution_result, plan, executor_principals):
     """-> (ref, close_status, anomalies) si valide+cohérent ; sinon (code, source) via ValueError."""
     if not (isinstance(execution_result, dict) and set(execution_result) == _EXEC_KEYS):
         raise ValueError((EXEC_MALFORMED, "execution_result"))
@@ -207,6 +268,9 @@ def _validate_execution_result(execution_result, plan):
         raise ValueError((EXEC_INCONSISTENT, "execution_result.action_id"))
     if execution_result["target_refs"] != plan["target_refs"]:
         raise ValueError((EXEC_INCONSISTENT, "execution_result.target_refs"))
+    if not _exact_authorization(executor_principals, "executor_id", execution_result["executor_id"],
+                                plan, execution_result["provenance_refs"]):
+        raise ValueError((EXECUTOR_UNAUTHORIZED, "execution_result.executor_authority"))
     close_status, anomalies = _close_from_exec(execution_result)
     ref = {"execution_result_id": execution_result["execution_result_id"],
            "execution_status": execution_result["execution_status"],
@@ -214,7 +278,7 @@ def _validate_execution_result(execution_result, plan):
     return ref, close_status, anomalies
 
 
-def _validate_human_decision(human_decision, plan):
+def _validate_human_decision(human_decision, plan, human_principals):
     """-> (ref, decision) si valide+scope EXACT ; sinon (code, source) via ValueError."""
     if not (isinstance(human_decision, dict) and set(human_decision) == _HUMAN_KEYS):
         raise ValueError((HUMAN_MALFORMED, "human_decision"))
@@ -237,12 +301,17 @@ def _validate_human_decision(human_decision, plan):
             or human_decision["target_refs"] != plan["target_refs"]
             or human_decision["approval_scope"] != plan["approval_scope"]):
         raise ValueError((HUMAN_SCOPE_MISMATCH, "frontier:human_decision.scope<->10.plan"))
+    if not _exact_authorization(human_principals, "identity_ref", human_decision["identity_ref"],
+                                plan, human_decision["provenance_refs"], role="ACTION_APPROVER"):
+        raise ValueError((HUMAN_UNAUTHORIZED, "human_decision.identity_authority"))
     ref = {"human_decision_id": human_decision["human_decision_id"],
            "decision": human_decision["decision"], "CONTENT_SHA256": human_decision["CONTENT_SHA256"]}
     return ref, human_decision["decision"]
 
 
-def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict, execution_result=None,
+def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict,
+                        human_authority, human_authority_fingerprint,
+                        executor_authority, executor_authority_fingerprint, execution_result=None,
                         human_decision=None, provenance_refs=None, ci_refs=None,
                         closed_at_context=None) -> dict:
     """Fonction PURE : enveloppe(00→10) + catalogue/permissions (pour replay) + entrées de clôture INJECTÉES
@@ -274,6 +343,14 @@ def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict, execut
     if ad != run_action_admissibility_and_plan(envelope, catalog, permissions):
         return _blocked(ACTION_10_REPLAY_MISMATCH, "frontier:10.received<->10.replayed")
 
+    # 5) Autorités indépendantes versionnées et engagées, avant toute entrée de clôture.
+    try:
+        human_principals = _validate_authority(human_authority, human_authority_fingerprint, "human")
+        executor_principals = _validate_authority(executor_authority, executor_authority_fingerprint, "executor")
+    except ValueError as e:
+        code, src = e.args[0]
+        return _blocked(code, src)
+
     # --- 09 et 10 sont désormais AUTORITAIRES (revalidés, jamais re-jugés). Lecture des entrées de clôture. ---
     action_status = ad["action_status"]
     action_plan_id = ad["action_plan_id"]
@@ -304,7 +381,7 @@ def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict, execut
         if action_status != _A_HUMAN_APPROVAL:
             return _blocked(HUMAN_UNEXPECTED, "human_decision")
         try:
-            human_ref, human_decision_value = _validate_human_decision(human_decision, ad)
+            human_ref, human_decision_value = _validate_human_decision(human_decision, ad, human_principals)
         except ValueError as e:
             code, src = e.args[0]
             return _blocked(code, src)
@@ -319,7 +396,8 @@ def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict, execut
         if action_status == _A_HUMAN_APPROVAL and human_decision_value != "APPROVED":
             return _blocked(EXEC_UNEXPECTED, "execution_result.without_human_go")
         try:
-            exec_ref, exec_close_status, exec_anomalies = _validate_execution_result(execution_result, ad)
+            exec_ref, exec_close_status, exec_anomalies = _validate_execution_result(
+                execution_result, ad, executor_principals)
         except ValueError as e:
             code, src = e.args[0]
             return _blocked(code, src)
@@ -398,10 +476,12 @@ def _load_catalog(path=None):
         return None
 
 
-def main(envelope: dict) -> dict:
+def main(envelope: dict, human_authority: dict, human_authority_fingerprint: str,
+         executor_authority: dict, executor_authority_fingerprint: str) -> dict:
     # Impur (fin) : catalogue chargé du fichier gelé ; entrées de clôture INJECTÉES via l'enveloppe (aucune lecture cachée dans run).
     return run_trace_and_close(
-        envelope, _load_catalog(), envelope.get("permissions"),
+        envelope, _load_catalog(), envelope.get("permissions"), human_authority,
+        human_authority_fingerprint, executor_authority, executor_authority_fingerprint,
         execution_result=envelope.get("execution_result"),
         human_decision=envelope.get("human_decision"),
         provenance_refs=envelope.get("closure_provenance_refs"),
