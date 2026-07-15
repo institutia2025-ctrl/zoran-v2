@@ -26,11 +26,27 @@ from zoran_v2.coherence_2 import (
 )
 
 
+def _req_06(tgts, fingerprint="FP", s_pre=0.5, **over):
+    """Requête AUTORITAIRE 06 COMPLÈTE et valide (schéma exact). `over` pour dégrader un champ."""
+    frames = sorted({t["frame"] for t in tgts if isinstance(t, dict) and isinstance(t.get("frame"), str)})
+    req = {
+        "instruction_kind": "STRUCTURED_ANALYSIS_V1",
+        "referential_fingerprint": fingerprint,
+        "coherence_S": s_pre,
+        "frames": frames,
+        "targets": tgts,
+        "pii_policy": "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT",
+    }
+    req.update(over)
+    return req
+
+
 def _env(response=None, s_pre=0.5, targets=None, executed=True, fingerprint="FP",
-         **status_overrides):
+         request=None, **status_overrides):
     tgts = targets if targets is not None else [
         {"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
          "canons": ["C"], "operants": ["OP_A"]}]
+    req = request if request is not None else _req_06(tgts, fingerprint=fingerprint, s_pre=s_pre)
     base = {
         "runtime_check": {"status": "PASS"},
         "object_discovery": {"status": "PASS"},
@@ -39,8 +55,7 @@ def _env(response=None, s_pre=0.5, targets=None, executed=True, fingerprint="FP"
         "canon_determination": {"status": "PASS",
                                 "canon_referential": {"fingerprint": fingerprint, "canons": []}},
         "coherence_engine": {"status": "PASS", "coherence": {"S": s_pre}},
-        "llm_request_build": {"status": "PASS", "authorized": True,
-                              "llm_request": {"targets": tgts}},
+        "llm_request_build": {"status": "PASS", "authorized": True, "llm_request": req},
         "llm_execution": {"status": "PASS", "executed": executed,
                           "response": response if response is not None else _resp()},
     }
@@ -110,6 +125,93 @@ def test_blocked_s_pre_absent():
     env["coherence_engine"]["coherence"] = {"S": None}
     v = run_coherence_2(env)
     assert v["status"] == BLOCKED and v["blocked_by"] == ENVELOPE_MALFORMED
+
+
+# --- Frontière 06->08 : re-validation STRICTE de la requête autoritaire (GC-08-001/002/003) ---
+
+def _assert_blocked_malformed(request):
+    from zoran_v2.coherence_2 import ENVELOPE_MALFORMED
+    v = run_coherence_2(_env(request=request))
+    assert v["status"] == BLOCKED and v["blocked_by"] == ENVELOPE_MALFORMED and v["authorize_09"] is False
+
+
+def test_blocked_06_schema_racine_incomplet():
+    _assert_blocked_malformed({"targets": [
+        {"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+         "canons": ["C"], "operants": ["OP_A"]}]})  # clés racine manquantes
+
+
+def test_blocked_06_instruction_kind_faux():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts, instruction_kind="AUTRE"))
+
+
+def test_blocked_06_pii_policy_faux():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts, pii_policy="DISABLED"))
+
+
+def test_blocked_06_fingerprint_divergent_du_04():
+    # Contre-exemple ChatGPT GC-08-001 : requête 06 avec un fingerprint != 04 gelé -> BLOCKED,
+    # même si la réponse 07 utilisait le vrai fingerprint 04.
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts, referential_fingerprint="FAUX"))
+
+
+def test_blocked_06_object_public_id_non_opaque():
+    for bad_id in ("code-jean", "OBJ-1", "obj-0001", "jean"):
+        tgts = [{"object_public_id": bad_id, "kind_public": "code", "frame": "CODE",
+                 "canons": ["C"], "operants": ["OP_A"]}]
+        _assert_blocked_malformed(_req_06(tgts))
+
+
+def test_blocked_06_canons_conteneur_malforme():
+    # GC-08-003 : conteneur falsy/partiellement malformé ne doit PAS être normalisé silencieusement.
+    for bad in ({}, "", [12, None, "C"], "CANON"):
+        tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+                 "canons": bad, "operants": ["OP_A"]}]
+        _assert_blocked_malformed(_req_06(tgts))
+
+
+def test_blocked_06_doublon_cible_opid_frame():
+    # GC-08-002 : deux cibles (object_public_id, frame) identiques -> BLOCKED (pas d'écrasement).
+    t = {"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+         "canons": ["C"], "operants": ["OP_A"]}
+    _assert_blocked_malformed(_req_06([t, dict(t)]))
+
+
+def test_blocked_06_doublon_canon_dans_cible():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C", "C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts))
+
+
+def test_blocked_06_cle_interne_fuite():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts, object_id_map={"OBJ-0001": "k1"}))  # clé interne interdite
+
+
+def test_blocked_06_target_cle_en_trop():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"], "object_key": "pii"}]
+    _assert_blocked_malformed(_req_06(tgts))
+
+
+def test_blocked_06_kind_public_x1f_fuite():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code\x1fpii", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts))
+
+
+def test_blocked_06_frames_racine_incoherentes_avec_cibles():
+    # frames racine != ensemble des frames des cibles -> requête 06 incohérente -> BLOCKED.
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts, frames=["CODE", "FRONTEND"]))
 
 
 # ---------- ACCEPT ----------

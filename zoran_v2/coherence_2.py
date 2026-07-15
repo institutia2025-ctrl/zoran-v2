@@ -33,6 +33,7 @@ panne) :
 """
 from __future__ import annotations
 
+import re
 import statistics
 
 COMPONENT_ID = "08_COHERENCE_2"
@@ -55,6 +56,7 @@ GOVERNANCE = {
         "NO_NETWORK",
         "NO_MEMORY",
         "RESPONSE_SCHEMA_VALIDATED",
+        "REQUEST_06_REVALIDATED_STRICT_FAIL_CLOSED",
         "REFERENTIAL_FINGERPRINT_VERIFIED",
         "PROVENANCE_TO_04_06",
         "NO_PII_FROM_RESPONSE",
@@ -128,6 +130,19 @@ _PII_FORBIDDEN_KEYS = frozenset((
 ))
 _PII_SEP = "\x1f"
 
+# Contrat de la requête AUTORITAIRE 06 (llm_request) — 08 la RE-VALIDE (fail-closed -> BLOCKED)
+# au lieu de faire confiance à 07 : une enveloppe 06 tampérée mais status=PASS ne doit jamais
+# servir de source de vérité (findings GC-08-001/002/003).
+_REQUEST_ROOT_KEYS = frozenset((
+    "instruction_kind", "referential_fingerprint", "coherence_S",
+    "frames", "targets", "pii_policy",
+))
+_REQUEST_TARGET_KEYS = frozenset((
+    "object_public_id", "kind_public", "frame", "canons", "operants",
+))
+_OBJ_PUBLIC_ID_RE = re.compile(r"^OBJ-\d{4,}$")
+_EXPECTED_PII_POLICY = "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT"
+
 # Codes de violation (non-BLOCKED).
 V_SCHEMA_INVALID = "RESPONSE_SCHEMA_INVALID"
 V_FINGERPRINT_MISMATCH = "RESPONSE_FINGERPRINT_MISMATCH"
@@ -173,6 +188,63 @@ def _is_bool(x) -> bool:
     return isinstance(x, bool)
 
 
+def _is_str_list(x) -> bool:
+    return isinstance(x, list) and all(isinstance(e, str) for e in x)
+
+
+def _validate_request_06(request, fp04) -> bool:
+    """Re-valide la requête AUTORITAIRE 06 avec la MÊME rigueur que la frontière 07 (fail-closed).
+
+    08 utilise 06 comme source de vérité des cibles attendues : une source mal validée peut
+    produire une certification post-LLM FAUSSE (GC-08-001/002/003). Impose : schéma racine EXACT,
+    instruction_kind + pii_policy canoniques, fingerprint 06 == fingerprint 04, cibles = liste
+    non vide au schéma EXACT, object_public_id opaque `OBJ-nnnn`, kind_public/frame str, canons &
+    operants listes de STR UNIQUEMENT (pas de conteneur falsy normalisé), AUCUN doublon
+    (object_public_id, frame) ni canon/opérant dupliqué, et aucune clé interne / séparateur (fuite).
+    """
+    if _has_internal_leak(request):
+        return False
+    if not isinstance(request, dict) or set(request) != _REQUEST_ROOT_KEYS:
+        return False
+    if request.get("instruction_kind") != EXPECTED_INSTRUCTION_KIND:
+        return False
+    if request.get("pii_policy") != _EXPECTED_PII_POLICY:
+        return False
+    if request.get("referential_fingerprint") != fp04:  # fingerprint 06 DOIT == 04 gelé
+        return False
+    s = request.get("coherence_S")
+    if not (s is None or (isinstance(s, (int, float)) and not isinstance(s, bool))):
+        return False
+    if not _is_str_list(request.get("frames")):
+        return False
+    targets = request.get("targets")
+    if not (isinstance(targets, list) and targets):
+        return False
+    seen_targets = set()
+    for t in targets:
+        if not isinstance(t, dict) or set(t) != _REQUEST_TARGET_KEYS:
+            return False
+        opid = t.get("object_public_id")
+        if not (isinstance(opid, str) and _OBJ_PUBLIC_ID_RE.match(opid)):
+            return False
+        frame = t.get("frame")
+        if not (isinstance(t.get("kind_public"), str) and isinstance(frame, str)):
+            return False
+        if (opid, frame) in seen_targets:            # doublon (object_public_id, frame) -> malformé
+            return False
+        seen_targets.add((opid, frame))
+        canons, operants = t.get("canons"), t.get("operants")
+        if not (_is_str_list(canons) and _is_str_list(operants)):
+            return False
+        if len(set(canons)) != len(canons) or len(set(operants)) != len(operants):  # doublon canon/opérant
+            return False
+    # Cohérence root<->cibles : `frames` racine DOIT être exactement l'ensemble des frames des cibles
+    # (invariant 06). Sinon requête incohérente -> fail-closed.
+    if set(request["frames"]) != {t["frame"] for t in targets}:
+        return False
+    return True
+
+
 def run_coherence_2(envelope: dict) -> dict:
     """Fonction PURE : envelope(00→07) -> validation réponse + cohérence post-LLM + verdict."""
     if not isinstance(envelope, dict):
@@ -196,19 +268,17 @@ def run_coherence_2(envelope: dict) -> dict:
     if not (isinstance(fingerprint, str) and fingerprint):
         return _blocked(FINGERPRINT_MISSING)
 
-    # 4) Requête 06 autoritaire : construit la table des cibles ATTENDUES, clef (object_public_id, frame).
+    # 4) Requête 06 AUTORITAIRE : re-validée STRICTEMENT (fail-closed), pas de confiance à 07.
+    #    Une source attendue mal validée fausserait la certification post-LLM (GC-08-001/002/003).
     lrb = envelope["llm_request_build"]
     request = lrb.get("llm_request")
-    if not (isinstance(request, dict) and isinstance(request.get("targets"), list) and request["targets"]):
+    if not _validate_request_06(request, fingerprint):
         return _blocked(ENVELOPE_MALFORMED)
-    expected = {}
-    for t in request["targets"]:
-        if not (isinstance(t, dict) and isinstance(t.get("object_public_id"), str) and isinstance(t.get("frame"), str)):
-            return _blocked(ENVELOPE_MALFORMED)
-        expected[(t["object_public_id"], t["frame"])] = {
-            "canons": {c for c in (t.get("canons") or []) if isinstance(c, str)},
-            "operants": {o for o in (t.get("operants") or []) if isinstance(o, str)},
-        }
+    # Cibles attendues, clef (object_public_id, frame). L'unicité est déjà garantie par la validation.
+    expected = {
+        (t["object_public_id"], t["frame"]): {"canons": set(t["canons"]), "operants": set(t["operants"])}
+        for t in request["targets"]
+    }
 
     # 5) S_pre depuis 05.
     ce = envelope["coherence_engine"]
