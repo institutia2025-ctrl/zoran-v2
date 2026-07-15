@@ -5,6 +5,7 @@ impact_context) AVANT toute lecture des entrées de clôture, 10 statuts de clô
 humaine falsifiés/incomplets/hors-scope → BLOCKED, absence d'exécution = cas nominal, appariement de scope EXACT,
 anti-fuite/surrogate, closure_id (contexte complet, via _fingerprint) + CONTENT_SHA256, objet plat 21 clés, fail-closed.
 """
+import base64
 import copy
 
 import pytest
@@ -47,6 +48,22 @@ from zoran_v2.trace_and_close import (
     run_trace_and_close as RUN,
 )
 
+_HUMAN_N = int("22257822511297263857735046943867968420363575251328596241453709180862563914629761888058994309982106830747179588599188430400836571089812443826062042432449881918181938580223032266390670012013862399618838440671750656254758513329245566374645313089292827740742932206721682681211206320174732905661849827015661555361708852513247096809620673616207725918929040652679953845687264753129470058933985159151847170690785957789838151818463892808287414766125927431038684393343433213441968208809731644556802698216173802994644887313107284943918200428027444395529306366159451132502370713668356646829951358976646279106235511933764247402693")
+_HUMAN_D = int("3015420932025887383872698598545367114947328894559314187082214937967613551993820259755615846464647924431947156145002735499358037529390607376301148347454329448724505045533900662758688395397532398196679155364363735587865437084731358964384730359820539455622340194553155318458336483440673356823552331532039993204832653141739074482637562696150108468658244152256925609649242166774878986347160895107874977028894484613025904400327029511848597881608239839829856186786049535579421129247447980076563319695464870614126793095825594641457499312661399075714633579953151598852060683903162666640371705821436499653631333993538713282513")
+_EXECUTOR_N = int("22454497963301209412983786996647158576330813716094883142833213543249203855375670753316479635856463834866453104227876146649273164753844711782749470874925091613706369341093154273904067185293106528429385131977428165602260299488713316957369273414857331253656719141539918933986602304330008249647594277806652250527882044401311637437216840752414142730266798231321700354610125080211887219196042399797041277519081103984074697532459852293037991864860833371157309416149030955721312744400538218498799024930036375527682005351509441871413674902069472806916176968917063107566673811068232598715730552683082658107368555170477698322927")
+_EXECUTOR_D = int("10484784464103666018454054317071242552658611104156088415634078219078391012409457078560420092110740162696885189572750536364004039721299097420080381051604745273919090916451197957075778750488228015162912997485500831738980553806305759629994290559603836342200224160547993183368036535330496474534855978947774064185418312140766186854432745886293951135767139672416826863632388913414743571141954195191324219980776634942485369054588490021844248276906487826056158665147818272763853126358246127350401309292069061785515167151575390548486050684650837012768050692187587682982343238122934098783001039682313505197825150215964481902473")
+
+
+def _sign(obj, n, d, key_id):
+    payload = {k: v for k, v in obj.items() if k not in ("CONTENT_SHA256", "authenticity_proof")}
+    digest = bytes.fromhex(_canonical_sha256(payload))
+    digest_info = bytes.fromhex("3031300d060960864801650304020105000420") + digest
+    size = (n.bit_length() + 7) // 8
+    encoded = b"\x00\x01" + b"\xff" * (size - len(digest_info) - 3) + b"\x00" + digest_info
+    signature = pow(int.from_bytes(encoded, "big"), d, n).to_bytes(size, "big")
+    return {"algorithm": "RS256", "key_id": key_id,
+            "signature_b64": base64.b64encode(signature).decode("ascii")}
+
 
 def _code(v):
     return (v["blocked_by"] or "").split("@")[0]
@@ -70,7 +87,8 @@ def _human_authority(plan, identity_ref="user://fred", action_id=None, target_re
         "identity_ref": identity_ref, "roles": ["ACTION_APPROVER"],
         "allowed_action_ids": [action_id if action_id is not None else "ACTION_APPLY_PATCH"],
         "allowed_target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]],
-        "plan_binding": "EXACT_RECEIVED_ACTION_PLAN_ID", "provenance_refs": ["prov://human/1"],
+        "provenance_refs": ["prov://human/1"], "key_id": "HUMAN-FRED-RSA-1",
+        "rsa_n": str(_HUMAN_N), "rsa_e": 65537,
     }]}
     return registry, _canonical_sha256(registry)
 
@@ -81,7 +99,8 @@ def _executor_authority(plan, executor_id="EXECUTOR-1", action_id=None, target_r
         "allowed_action_ids": ([action_id] if action_id is not None
                                else ["ACTION_ANNOTATE", "ACTION_APPLY_PATCH"]),
         "allowed_target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]],
-        "plan_binding": "EXACT_RECEIVED_ACTION_PLAN_ID", "provenance_refs": ["prov://exec/1"],
+        "provenance_refs": ["prov://exec/1"], "key_id": "EXECUTOR-1-RSA-1",
+        "rsa_n": str(_EXECUTOR_N), "rsa_e": 65537,
     }]}
     return registry, _canonical_sha256(registry)
 
@@ -112,9 +131,12 @@ def _exec_result(plan, status="SUCCESS", anomalies=None, **over):
         "target_refs": plan["target_refs"], "executor_id": "EXECUTOR-1",
         "execution_status": status, "started_at_context": "t0", "completed_at_context": "t1",
         "effects": [], "anomalies": anomalies if anomalies is not None else [],
-        "rollback_available": True, "provenance_refs": ["prov://exec/1"], "CONTENT_SHA256": None,
+        "rollback_available": True, "provenance_refs": ["prov://exec/1"],
+        "authenticity_proof": None, "CONTENT_SHA256": None,
     }
     obj.update(over)
+    if obj["authenticity_proof"] is None:
+        obj["authenticity_proof"] = _sign(obj, _EXECUTOR_N, _EXECUTOR_D, "EXECUTOR-1-RSA-1")
     obj["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in obj.items() if k != "CONTENT_SHA256"})
     return obj
 
@@ -124,9 +146,11 @@ def _human(plan, decision="APPROVED", **over):
         "human_decision_id": "HD-1", "action_plan_id": plan["action_plan_id"], "action_id": plan["action_id"],
         "target_refs": plan["target_refs"], "approval_scope": plan["approval_scope"], "decision": decision,
         "identity_ref": "user://fred", "decided_at_context": "th", "provenance_refs": ["prov://human/1"],
-        "CONTENT_SHA256": None,
+        "authenticity_proof": None, "CONTENT_SHA256": None,
     }
     obj.update(over)
+    if obj["authenticity_proof"] is None:
+        obj["authenticity_proof"] = _sign(obj, _HUMAN_N, _HUMAN_D, "HUMAN-FRED-RSA-1")
     obj["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in obj.items() if k != "CONTENT_SHA256"})
     return obj
 
@@ -432,10 +456,47 @@ def test_CE_identity_attacker_rehashee_bloquee():
     assert _close(env, human_decision=hd)["status"] == BLOCKED
 
 
+def test_CE_usurpation_identite_autorisee_sans_preuve_authentique_bloquee():
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    forged = _human(_plan(env), identity_ref="user://fred")
+    forged["authenticity_proof"]["signature_b64"] = base64.b64encode(b"forged").decode("ascii")
+    forged["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in forged.items() if k != "CONTENT_SHA256"})
+    assert _close(env, human_decision=forged)["status"] == BLOCKED
+
+
 def test_CE_executor_attacker_rehashe_bloque():
     env = _full_env(action_id="ACTION_ANNOTATE")
     er = _exec_result(_plan(env), executor_id="ATTACKER")
     assert _close(env, execution_result=er)["status"] == BLOCKED
+
+
+def test_CE_usurpation_executeur_autorise_sans_preuve_authentique_bloquee():
+    env = _full_env(action_id="ACTION_ANNOTATE")
+    forged = _exec_result(_plan(env), executor_id="EXECUTOR-1")
+    forged["authenticity_proof"]["signature_b64"] = base64.b64encode(b"forged").decode("ascii")
+    forged["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in forged.items() if k != "CONTENT_SHA256"})
+    assert _close(env, execution_result=forged)["status"] == BLOCKED
+
+
+@pytest.mark.parametrize("signed_change", ["plan", "action", "targets"])
+def test_CE_signature_humaine_autre_contexte_non_rejouable(signed_change):
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    plan = _plan(env)
+    signed_plan = dict(plan)
+    overrides = {}
+    if signed_change == "plan":
+        signed_plan["action_plan_id"] = "ACTION-PLAN-" + "f" * 64
+    elif signed_change == "action":
+        overrides["action_id"] = "ACTION_OTHER"
+    else:
+        overrides["target_refs"] = [["OBJ-9999", "CODE"]]
+    foreign = _human(signed_plan, **overrides)
+    received = _human(plan)
+    received["authenticity_proof"] = foreign["authenticity_proof"]
+    received["CONTENT_SHA256"] = _canonical_sha256(
+        {k: v for k, v in received.items() if k != "CONTENT_SHA256"})
+    out = _close(env, human_decision=received)
+    assert out["status"] == BLOCKED and out["closure_id"] is None
 
 
 def test_CE_registre_humain_attacker_et_auto_fingerprint_bloques():

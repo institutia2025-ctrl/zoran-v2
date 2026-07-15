@@ -16,6 +16,8 @@ Contrat figé : specs/SPEC_ENGINE_11_TRACE_AND_CLOSE.md.
 """
 from __future__ import annotations
 
+import base64
+
 from zoran_v2.structured_decision import (
     _canonical_sha256,
     _has_internal_leak,
@@ -43,12 +45,13 @@ GOVERNANCE = {
         "HUMAN_GO_SCOPE_BOUNDED_EXACT", "NO_TIME_INVENTION",
         "INDEPENDENT_HUMAN_AUTHORITY", "INDEPENDENT_EXECUTOR_AUTHORITY",
         "EXACT_AUTHORITY_SCOPE", "AUTHORITY_FINGERPRINT_REVALIDATED",
+        "EXTERNAL_EMITTER_RS256_AUTHENTICATED", "EXACT_EXTERNAL_PAYLOAD_SIGNED",
     ],
-    "TRACEABILITY": "objet-cloture {closure_id, close_status, pipeline_gate_digest 00-10, final_state, human_decision_ref, execution_result_ref, anomalies, resumption_conditions, rollback_plan_ref, CONTENT_SHA256} ; 09/10 rejoues ; autorites versionnees injectees, fingerprints recalcules et scopes exacts ; SHA git ; run CI",
+    "TRACEABILITY": "objet-cloture {closure_id, close_status, pipeline_gate_digest 00-10, final_state, human_decision_ref, execution_result_ref, anomalies, resumption_conditions, rollback_plan_ref, CONTENT_SHA256} ; 09/10 rejoues ; autorites engagees + cles publiques canoniques + signatures RS256 du payload externe exact ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..10 != PASS, replay 09/10 divergent, autorite absente/divergente/hors-scope, resultat d'execution/decision humaine falsifie/incomplet, execution sans plan/sans GO/apres refus, provenance/ci/closed_at absents, fuite ou surrogate",
+    "ALERTE": "status=BLOCKED si 00..10 != PASS, replay 09/10 divergent, autorite absente/divergente/hors-scope, signature externe absente/invalide/hors-contexte, resultat d'execution/decision humaine falsifie/incomplet, execution sans plan/sans GO/apres refus, provenance/ci/closed_at absents, fuite ou surrogate",
     "ANTI_REGRESSION": "tests adversariaux + replay 09/10 puis autorites engagees AVANT entrees de cloture + identites/executants/actions/scopes/provenances exacts + 10 statuts + determinisme + anti-fuite/surrogate ; gate CI",
 }
 
@@ -128,22 +131,23 @@ _STEPS_00_10 = (
 _EXEC_KEYS = frozenset((
     "execution_result_id", "action_plan_id", "action_id", "target_refs", "executor_id",
     "execution_status", "started_at_context", "completed_at_context", "effects", "anomalies",
-    "rollback_available", "provenance_refs", "CONTENT_SHA256",
+    "rollback_available", "provenance_refs", "authenticity_proof", "CONTENT_SHA256",
 ))
 _EXEC_STATUS_ENUM = frozenset(("SUCCESS", "FAILED", "PARTIAL"))
 _HUMAN_KEYS = frozenset((
     "human_decision_id", "action_plan_id", "action_id", "target_refs", "approval_scope",
-    "decision", "identity_ref", "decided_at_context", "provenance_refs", "CONTENT_SHA256",
+    "decision", "identity_ref", "decided_at_context", "provenance_refs", "authenticity_proof", "CONTENT_SHA256",
 ))
 _HUMAN_DECISION_ENUM = frozenset(("APPROVED", "DECLINED"))
 _HUMAN_AUTH_KEYS = frozenset(("version", "source", "identities"))
 _IDENTITY_KEYS = frozenset(("identity_ref", "roles", "allowed_action_ids", "allowed_target_refs",
-                            "plan_binding", "provenance_refs"))
+                            "provenance_refs", "key_id", "rsa_n", "rsa_e"))
 _EXECUTOR_AUTH_KEYS = frozenset(("version", "source", "executors"))
 _EXECUTOR_KEYS = frozenset(("executor_id", "allowed_action_ids", "allowed_target_refs",
-                            "plan_binding", "provenance_refs"))
-CANONICAL_HUMAN_AUTHORITY_FINGERPRINT = "5b7803f4e3360b1ada7fa4c10945d95a23be60de53641ccce5d6ad498271b075"
-CANONICAL_EXECUTOR_AUTHORITY_FINGERPRINT = "f0165502130d253f8ca199e4d2ae3e46f6ec7c7d5e0e3e2aeb0b2d0f4b8fbf4e"
+                            "provenance_refs", "key_id", "rsa_n", "rsa_e"))
+_AUTH_PROOF_KEYS = frozenset(("algorithm", "key_id", "signature_b64"))
+CANONICAL_HUMAN_AUTHORITY_FINGERPRINT = "003fab738e2dd19fbb862377a7c384815c44ab8a6c173c6eb66b21ad1deed7ae"
+CANONICAL_EXECUTOR_AUTHORITY_FINGERPRINT = "5e3ffcd470eab2d83aea1d1e118504dc970fa8c02fc37197b6c6b29bde663368"
 
 ORDER_KEY = "trace_consolidation_puis_cloture"
 
@@ -213,8 +217,10 @@ def _validate_authority(registry, kind):
                 and isinstance(principal[id_key], str) and principal[id_key]
                 and _valid_refs(principal["allowed_action_ids"])
                 and isinstance(principal["allowed_target_refs"], list)
-                and principal["plan_binding"] == "EXACT_RECEIVED_ACTION_PLAN_ID"
-                and _valid_refs(principal["provenance_refs"])):
+                and _valid_refs(principal["provenance_refs"])
+                and isinstance(principal["key_id"], str) and principal["key_id"]
+                and isinstance(principal["rsa_n"], str) and principal["rsa_n"].isdigit()
+                and isinstance(principal["rsa_e"], int) and principal["rsa_e"] > 1):
             raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
         if kind == "human" and not _valid_refs(principal["roles"]):
             raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
@@ -225,7 +231,7 @@ def _validate_authority(registry, kind):
     return registry[list_key]
 
 
-def _exact_authorization(principals, id_key, principal_id, plan, provenance_refs, role=None):
+def _authorized_principal(principals, id_key, principal_id, plan, provenance_refs, role=None):
     for principal in principals:
         if principal[id_key] != principal_id:
             continue
@@ -234,10 +240,35 @@ def _exact_authorization(principals, id_key, principal_id, plan, provenance_refs
         if (plan["action_plan_id"]
                 and plan["action_id"] in principal["allowed_action_ids"]
                 and plan["target_refs"] == principal["allowed_target_refs"]
-                and principal["provenance_refs"] == provenance_refs
-                and principal["plan_binding"] == "EXACT_RECEIVED_ACTION_PLAN_ID"):
-            return True
-    return False
+                and principal["provenance_refs"] == provenance_refs):
+            return principal
+    return None
+
+
+def _authentic_payload(obj):
+    return {k: v for k, v in obj.items() if k not in ("CONTENT_SHA256", "authenticity_proof")}
+
+
+def _rsa_sha256_valid(obj, principal):
+    proof = obj.get("authenticity_proof")
+    if not (isinstance(proof, dict) and set(proof) == _AUTH_PROOF_KEYS
+            and proof["algorithm"] == "RS256" and proof["key_id"] == principal["key_id"]
+            and isinstance(proof["signature_b64"], str) and proof["signature_b64"]):
+        return False
+    try:
+        signature = base64.b64decode(proof["signature_b64"], validate=True)
+        n, e = int(principal["rsa_n"]), principal["rsa_e"]
+        size = (n.bit_length() + 7) // 8
+        if len(signature) != size:
+            return False
+        encoded = pow(int.from_bytes(signature, "big"), e, n).to_bytes(size, "big")
+    except (ValueError, TypeError):
+        return False
+    digest = bytes.fromhex(_canonical_sha256(_authentic_payload(obj)))
+    digest_info = bytes.fromhex("3031300d060960864801650304020105000420") + digest
+    padding_len = size - len(digest_info) - 3
+    expected = b"\x00\x01" + b"\xff" * padding_len + b"\x00" + digest_info
+    return padding_len >= 8 and encoded == expected
 
 
 def _close_from_exec(execution_result: dict):
@@ -282,8 +313,9 @@ def _validate_execution_result(execution_result, plan, executor_principals):
         raise ValueError((EXEC_INCONSISTENT, "execution_result.action_id"))
     if execution_result["target_refs"] != plan["target_refs"]:
         raise ValueError((EXEC_INCONSISTENT, "execution_result.target_refs"))
-    if not _exact_authorization(executor_principals, "executor_id", execution_result["executor_id"],
-                                plan, execution_result["provenance_refs"]):
+    principal = _authorized_principal(executor_principals, "executor_id", execution_result["executor_id"],
+                                      plan, execution_result["provenance_refs"])
+    if principal is None or not _rsa_sha256_valid(execution_result, principal):
         raise ValueError((EXECUTOR_UNAUTHORIZED, "execution_result.executor_authority"))
     close_status, anomalies = _close_from_exec(execution_result)
     ref = {"execution_result_id": execution_result["execution_result_id"],
@@ -315,8 +347,9 @@ def _validate_human_decision(human_decision, plan, human_principals):
             or human_decision["target_refs"] != plan["target_refs"]
             or human_decision["approval_scope"] != plan["approval_scope"]):
         raise ValueError((HUMAN_SCOPE_MISMATCH, "frontier:human_decision.scope<->10.plan"))
-    if not _exact_authorization(human_principals, "identity_ref", human_decision["identity_ref"],
-                                plan, human_decision["provenance_refs"], role="ACTION_APPROVER"):
+    principal = _authorized_principal(human_principals, "identity_ref", human_decision["identity_ref"],
+                                      plan, human_decision["provenance_refs"], role="ACTION_APPROVER")
+    if principal is None or not _rsa_sha256_valid(human_decision, principal):
         raise ValueError((HUMAN_UNAUTHORIZED, "human_decision.identity_authority"))
     ref = {"human_decision_id": human_decision["human_decision_id"],
            "decision": human_decision["decision"], "CONTENT_SHA256": human_decision["CONTENT_SHA256"]}

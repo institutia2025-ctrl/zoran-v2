@@ -18,6 +18,7 @@ required_keys:
   - anomalies                # liste stricte de chaînes non vides documentant les anomalies (peut être vide)
   - rollback_available       # booléen : un rollback est-il disponible
   - provenance_refs          # références de provenance explicites (non vides)
+  - authenticity_proof       # {algorithm=RS256, key_id, signature_b64} sur le payload canonique exact
   - CONTENT_SHA256           # hash de l'objet SANS ce champ (revalidé)
 execution_status_enum:
   - SUCCESS                  # exécution réussie

@@ -15,6 +15,7 @@ required_keys:
   - identity_ref             # identité du décideur humain (présente, non vide)
   - decided_at_context       # contexte temporel INJECTÉ (jamais horloge)
   - provenance_refs          # références de provenance explicites (non vides)
+  - authenticity_proof       # {algorithm=RS256, key_id, signature_b64} sur le payload canonique exact
   - CONTENT_SHA256           # hash de l'objet SANS ce champ (revalidé)
 decision_enum:
   - APPROVED
