@@ -51,59 +51,112 @@ ENGINE-12 est le dernier moteur du plan de raisonnement V2. Il intervient après
 - aucune auto-certification de ZORAN ;
 - aucun code ENGINE-12 avant ces conditions.
 
-### Équation d'évolution
+### Principe scientifique V1
+
+Aucune équation de cohérence évolutive ne devient canonique tant que chacune de ses variables n'est pas calculable par un tiers à partir de données figées et de règles versionnées.
+
+Le verrou principal est l'identifiabilité de l'applicabilité :
 
 ```text
-S_evo = [beta * delta_phi * (1 - rho)] / [1 + T + sigma + lambda * rho]
+a_e(x ; v_e) -> {0,1}
 ```
 
 avec :
 
+- `x` : cas observé ;
+- `e` : classe d'erreur canonisée ;
+- `v_e` : version figée de la règle d'applicabilité ;
+- `a_e` : fonction déterministe qui ne lit ni le verdict final, ni le finding à prédire.
+
+La récurrence est définie par :
+
 ```text
-rho = recurrent_errors_weighted / applicable_cases_weighted
+r_e(x) -> {0,1}
 ```
 
-Bornes obligatoires :
+`r_e(x)=1` si la décision déjà invalidée est reproduite sur un cas applicable.
+
+### Taux de récurrence observable
+
+V1 exclut les poids libres et toute pénalité paramétrique non calibrée :
+
+```text
+rho = [sum_e,x a_e(x;v_e) * r_e(x)] / [sum_e,x a_e(x;v_e)]
+```
+
+Bornes :
 
 ```text
 0 <= rho <= 1
-lambda >= 0
 ```
 
-Cas sans observation applicable : `INDETERMINATE_NO_APPLICABLE_REPLAY`, jamais `rho=0` inventé.
-
-### Stabilité temporelle de rho
-
-La valeur instantanée de `rho` ne suffit pas lorsque l'ensemble des classes d'erreur ou des cas applicables varie fortement. ENGINE-12 devra également exposer, sur une fenêtre de replay comparable :
+Si aucun cas applicable n'est observable :
 
 ```text
-mean_rho_W = moyenne pondérée de rho sur la fenêtre W
-var_rho_W  = variance pondérée de rho sur la fenêtre W
+INDETERMINATE_NO_APPLICABLE_REPLAY
 ```
 
-Une baisse de `rho` accompagnée d'une forte variance ne prouve pas encore une évolution stable. La promotion canonique exige :
+Il est interdit de fixer artificiellement `rho=0`.
+
+### Équation V1 candidate
 
 ```text
-mean_rho_W en baisse ou nul
-ET
-var_rho_W sous un seuil contractuel
-ET
-aucune récurrence P0/P1
+S_evo = S * (1 - rho)
 ```
 
-Les seuils et la taille de fenêtre seront figés dans le contrat d'implémentation avant code ; ils ne doivent pas être inventés par l'agent constructeur.
+soit :
 
-### Criticité et lambda
+```text
+S_evo = [beta * delta_phi * (1 - rho)] / [1 + T + sigma]
+```
 
-`lambda` représente la pénalité de récidive. En V1, sa valeur doit être fixe et documentée. Une variation dynamique de `lambda` est interdite sans contrat dédié, car elle pourrait rendre les scores non comparables dans le temps.
+Cette forme :
 
-Une récurrence P0/P1 peut également déclencher un veto absolu indépendamment du score agrégé.
+- conserve la formule canonique de cohérence ;
+- n'applique qu'une seule pénalité de récurrence ;
+- n'introduit ni `lambda`, ni exposant libre, ni pondération arbitraire en V1 ;
+- retrouve `S` si `rho=0` ;
+- donne `0` si `rho=1`.
+
+Les variantes à double pénalité, les poids `w_e`, `lambda` et les formes `(1-rho)^k` restent au backlog expérimental V2 jusqu'à calibration externe.
+
+### Veto critique
+
+Une moyenne ne peut jamais compenser une récurrence critique :
+
+```text
+si existe e de sévérité P0 ou P1 et x tel que a_e(x)=1 et r_e(x)=1
+alors BLOCKED
+```
+
+### Conditions d'identifiabilité avant code
+
+ENGINE-12 ne pourra être implémenté que si les éléments suivants existent :
+
+1. fonctions `applicable(case, rule) -> bool` versionnées ;
+2. classes d'erreurs munies de conditions et exclusions exécutables ;
+3. dataset de replay figé avec cas positifs et négatifs ;
+4. vérité de référence indépendante ;
+5. mesures de précision, rappel, accord et stabilité entre versions ;
+6. prédiction falsifiable reliant `rho` à un comportement observable ;
+7. protection anti-Goodhart : la définition d'applicabilité ne peut pas être resserrée rétroactivement pour améliorer le score.
+
+### Stabilité temporelle
+
+Lorsque plusieurs fenêtres comparables sont disponibles, ENGINE-12 pourra exposer :
+
+```text
+mean_rho_W
+var_rho_W
+```
+
+Ces mesures restent descriptives tant que la taille de fenêtre, les corpus et les règles d'applicabilité ne sont pas figés. Une baisse de `rho` accompagnée d'une variance élevée ne prouve pas une évolution stable.
 
 ### Condition de non-récurrence
 
 ```text
 Pour toute classe d'erreur canonique e et tout cas futur x :
-A_e(x)=1 implique R_e(x)=0.
+a_e(x;v_e)=1 implique r_e(x)=0.
 ```
 
 ### Règle de construction
@@ -117,3 +170,4 @@ ENGINE-12 ne remplace pas les audits externes. Il produit des mesures, guards et
 - Aucun merge sans convergence des certificateurs requis.
 - Une amélioration locale est interdite si `delta_S_global < 0`.
 - Toute erreur confirmée doit enrichir la règle de non-récurrence cohérente.
+- Aucune formule n'est canonique sur la seule base de sa cohérence algébrique.
