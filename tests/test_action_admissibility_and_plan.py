@@ -211,6 +211,46 @@ def test_CE_catalogue_invalide():
         assert _code(RUN(_env(), bad, _permissions())) == CATALOG_INVALID, bad
 
 
+@pytest.mark.parametrize("mutation", [
+    lambda c: c["actions"].append(
+        {"id": "ACTION_INVENTED", "requires_action": True,
+         "sensitive_mutation": False, "permissions_required": []}),
+    lambda c: c["actions"].pop(),
+    lambda c: c["actions"][1].__setitem__("requires_action", False),
+    lambda c: c["actions"][1].__setitem__("sensitive_mutation", True),
+    lambda c: c["actions"][1].__setitem__("permissions_required", ["PERM_FORGED"]),
+    lambda c: c.__setitem__("version", "9.9.9"),
+])
+def test_CE_catalogue_structurellement_valide_mais_divergent_bloque_avant_donnees_action(mutation):
+    class ExplodingMapping(dict):
+        def items(self):
+            raise AssertionError("donnee action lue avant engagement canonique catalogue")
+
+    catalog = _catalog()
+    mutation(catalog)
+    env = _env()
+    unread = ExplodingMapping()
+    env["action_request"] = unread
+    env["impact_context"] = unread
+
+    out = RUN(env, catalog, unread)
+
+    assert out["status"] == BLOCKED
+    assert out["action_plan_id"] is None
+
+
+def test_catalogue_reordonne_semantiquement_identique_reste_accepte():
+    catalog = _catalog()
+    catalog["actions"].reverse()
+    for action in catalog["actions"]:
+        action["permissions_required"].reverse()
+
+    out = RUN(_env(), catalog, _permissions())
+
+    assert out["status"] == PASS
+    assert out["action_status"] == ACTION_PLAN_READY
+
+
 def test_CE_permissions_invalides():
     for bad in (None, {}, {"version": "1.0.0"}, {"version": "1.0.0", "granted": "x"}):
         assert _code(RUN(_env(), _catalog(), bad)) == PERMISSIONS_INVALID, bad

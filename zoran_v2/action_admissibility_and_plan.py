@@ -35,14 +35,14 @@ GOVERNANCE = {
         "HUMAN_GO_REQUIRED_FOR_SENSITIVE_MUTATION", "ANTI_LEAK", "EXACT_STRING_PRESERVATION",
         "NON_SCALAR_UNICODE_BLOCKED", "CANONICAL_PRIMITIVE_REUSED", "OBJECT_FIRST_CONTENT_SHA256",
         "ACTION_PLAN_ID_COVERS_COMPLETE_CONTEXT", "NO_HIDDEN_READ_IN_PURE_FN", "DECISION_09_INTEGRITY_REVALIDATED",
-        "DECISION_09_PROVENANCE_REPLAYED_EXACTLY",
+        "DECISION_09_PROVENANCE_REPLAYED_EXACTLY", "CANONICAL_ACTION_CATALOG_COMMITMENT",
     ],
     "TRACEABILITY": "plan {action_plan_id, action_status, global_impact, rollback_plan, approval_scope, justification_refs} ; primitive _fingerprint reutilisee (via 09) ; decision 09 rejouee depuis 00-08 et comparee exactement ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..09 != PASS, decision 09 recue != replay exact 00-08, decision 09 alteree/incomplete/decision_id invalide, action_request malforme, action hors catalogue, catalogue/permissions invalides, cible hors 09, impact_context malforme, fuite ou surrogate",
-    "ANTI_REGRESSION": "tests contre-exemples adversariaux + replay exact 09 avant toute donnee action + determinisme/contexte action_plan_id + integrite 09 + verdicts + anti-fuite/surrogate + gouvernance ; gate CI",
+    "ALERTE": "status=BLOCKED si 00..09 != PASS, decision 09 recue != replay exact 00-08, catalogue injecte != engagement canonique, decision 09 alteree/incomplete/decision_id invalide, action_request malforme, action hors catalogue, catalogue/permissions invalides, cible hors 09, impact_context malforme, fuite ou surrogate",
+    "ANTI_REGRESSION": "tests contre-exemples adversariaux + replay exact 09 et engagement catalogue avant toute donnee action + determinisme/contexte action_plan_id + integrite 09 + verdicts + anti-fuite/surrogate + gouvernance ; gate CI",
 }
 
 GOVERNANCE_REQUIRED_KEYS = (
@@ -85,6 +85,10 @@ _PERMISSIONS_KEYS = frozenset(("version", "granted"))
 _ACTION_REQUEST_KEYS = frozenset(("action_id", "target_refs"))
 _IMPACT_KEYS = frozenset(("assessed_target_refs", "global_impact", "risks"))
 
+# Engagement autoritaire indépendant de l'argument `catalog` injecté. Il scelle
+# ACTIONS_CATALOG.yaml v1.0.0 après normalisation par `_validate_catalog`.
+CANONICAL_CATALOG_FINGERPRINT = "c5d3d0c9900999502c9162ad145c4c10c2213126282a120499a3118f20fa8afc"
+
 _STEPS_00_09 = (
     ("runtime_check", "00_RUNTIME_CHECK"),
     ("object_discovery", "01_OBJECT_DISCOVERY"),
@@ -105,6 +109,7 @@ DECISION_REPLAY_MISMATCH = "10_ACTION_DECISION_09_REPLAY_MISMATCH"
 ACTION_REQUEST_MALFORMED = "10_ACTION_REQUEST_MALFORMED"
 ACTION_NOT_IN_CATALOG = "10_ACTION_NOT_IN_CATALOG"
 CATALOG_INVALID = "10_ACTION_CATALOG_INVALID"
+CATALOG_PROVENANCE_MISMATCH = "10_ACTION_CATALOG_PROVENANCE_MISMATCH"
 PERMISSIONS_INVALID = "10_ACTION_PERMISSIONS_INVALID"
 TARGET_PROVENANCE = "10_ACTION_TARGET_PROVENANCE"
 IMPACT_CONTEXT_MALFORMED = "10_ACTION_IMPACT_CONTEXT_MALFORMED"
@@ -225,7 +230,20 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
                         if isinstance(t, dict) and isinstance(t.get("object_public_id"), str)
                         and isinstance(t.get("frame"), str)}
 
-    # 5) action_request explicite (P-10-1) : schéma et cibles ⊆ 09.
+    # 5) Catalogue injecté : validation, normalisation et comparaison à
+    #    l'engagement canonique indépendant, avant toute donnée d'action.
+    if _has_internal_leak(catalog):
+        return _blocked(LEAK, "catalog")
+    if _has_surrogate_codepoint(catalog):
+        return _blocked(NON_SCALAR_UNICODE, "catalog")
+    actions_by_id, catalog_fp = _validate_catalog(catalog)
+    if actions_by_id is None:
+        return _blocked(CATALOG_INVALID, "catalog")
+    if catalog_fp != CANONICAL_CATALOG_FINGERPRINT:
+        return _blocked(CATALOG_PROVENANCE_MISMATCH,
+                        "frontier:catalog.injected<->catalog.canonical_commitment")
+
+    # 6) action_request explicite (P-10-1) : schéma et cibles ⊆ 09.
     action_request = envelope.get("action_request")
     if _has_internal_leak(action_request):
         return _blocked(LEAK, "action_request")
@@ -241,21 +259,17 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
     if not req_pairs <= decision_targets:
         return _blocked(TARGET_PROVENANCE, "frontier:action_request<->09.targets")
 
-    # 6) Catalogue versionné + permissions (INJECTÉS) revalidés.
-    for payload, src in ((catalog, "catalog"), (permissions, "permissions")):
-        if _has_internal_leak(payload):
-            return _blocked(LEAK, src)
-        if _has_surrogate_codepoint(payload):
-            return _blocked(NON_SCALAR_UNICODE, src)
-    actions_by_id, catalog_fp = _validate_catalog(catalog)
-    if actions_by_id is None:
-        return _blocked(CATALOG_INVALID, "catalog")
+    # 7) Permissions injectées revalidées.
+    if _has_internal_leak(permissions):
+        return _blocked(LEAK, "permissions")
+    if _has_surrogate_codepoint(permissions):
+        return _blocked(NON_SCALAR_UNICODE, "permissions")
     if not _valid_permissions(permissions):
         return _blocked(PERMISSIONS_INVALID, "permissions")
     if action_id not in actions_by_id:
         return _blocked(ACTION_NOT_IN_CATALOG, "catalog")
 
-    # 7) impact_context revalidé.
+    # 8) impact_context revalidé.
     impact_context = envelope.get("impact_context")
     if _has_internal_leak(impact_context):
         return _blocked(LEAK, "impact_context")
@@ -274,7 +288,7 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
     permissions_required = sorted(action["permissions_required"])
     granted = set(permissions["granted"])
 
-    # 8) VERDICT (déterministe).
+    # 9) VERDICT (déterministe).
     approval_required = False
     approval_scope = None
     global_impact = None
@@ -309,7 +323,7 @@ def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions
         "permissions_version": permissions["version"],
     }
 
-    # 9) action_plan_id (contexte COMPLET, sans self-ref) — seulement si un plan/approbation est émis.
+    # 10) action_plan_id (contexte COMPLET, sans self-ref) — seulement si un plan/approbation est émis.
     action_plan_id = None
     if action_status in (ACTION_PLAN_READY, HUMAN_APPROVAL_REQUIRED):
         payload = {
