@@ -1,0 +1,35 @@
+{
+  "object_id": "ZRN-WORK-TICKET-TX_ZORAN_CODEX_SESSION_B_INDEPENDENT_CERTIFIER_V1",
+  "meta_id": "ZRN-META-WORK-TICKET-TX_ZORAN_CODEX_SESSION_B_INDEPENDENT_CERTIFIER_V1",
+  "mission_id": "TX_ZORAN_CODEX_SESSION_B_INDEPENDENT_CERTIFIER_V1",
+  "timestamp": "2026-07-15T11:25:29.6071440+02:00",
+  "type": "independent_audit_reports_only",
+  "scope": "Baseline 00-07 independent multi-frame audit; first interface 03->04; reports and evidence only",
+  "baseline_sha": "6d3f3898a5c7352105f07a03098e7fb22d89899f",
+  "baseline_tag": "certified/v2-integration-00-07-hardening",
+  "allowed_branches": [
+    "integration/v2-canonical",
+    "audit/codex-session-b-00-07-v1"
+  ],
+  "allowed_write_paths": [
+    "audits/codex_session_b/",
+    "SYNC/CODEX_SESSION_B_CERTIFICATION_REPORT.md",
+    "SYNC/mailbox/"
+  ],
+  "product_mutation": false,
+  "merge_allowed": false,
+  "regard_A": "Independent adversarial falsification of interface 03->04 on the frozen baseline before reading detailed third-party findings",
+  "regard_B": "No product mutation, no merge, no verdict overwrite, no evidence reuse across SHA",
+  "go_fred": true,
+  "go_line": "GO pour créer ou utiliser un checkout propre et séparé de institutia2025-ctrl/zoran-v2",
+  "guard_ids": [
+    "CARNET_GATE_EXECUTABLE_V1",
+    "DEPOT_EXECUTION_GUARD_V1",
+    "FILE_GUARDS_REQUIRED_BLOCKING",
+    "SESSION_B_REPORTS_ONLY_V1",
+    "SHA_UNIQUE_AUDIT_V1",
+    "NO_PRODUCT_MUTATION_V1",
+    "NO_MERGE_V1"
+  ],
+  "rollback": "Delete only the dedicated checkout C:/Users/frede/zoran-v2-codex-session-b after preserving any approved reports externally; never alter C:/Users/frede/zoran"
+}
