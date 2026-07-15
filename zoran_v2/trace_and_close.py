@@ -137,11 +137,13 @@ _HUMAN_KEYS = frozenset((
 ))
 _HUMAN_DECISION_ENUM = frozenset(("APPROVED", "DECLINED"))
 _HUMAN_AUTH_KEYS = frozenset(("version", "source", "identities"))
-_IDENTITY_KEYS = frozenset(("identity_ref", "roles", "authorizations"))
-_HUMAN_AUTHZ_KEYS = frozenset(("role", "action_plan_id", "action_id", "target_refs", "provenance_refs"))
+_IDENTITY_KEYS = frozenset(("identity_ref", "roles", "allowed_action_ids", "allowed_target_refs",
+                            "plan_binding", "provenance_refs"))
 _EXECUTOR_AUTH_KEYS = frozenset(("version", "source", "executors"))
-_EXECUTOR_KEYS = frozenset(("executor_id", "authorizations"))
-_EXECUTOR_AUTHZ_KEYS = frozenset(("action_plan_id", "action_id", "target_refs", "provenance_refs"))
+_EXECUTOR_KEYS = frozenset(("executor_id", "allowed_action_ids", "allowed_target_refs",
+                            "plan_binding", "provenance_refs"))
+CANONICAL_HUMAN_AUTHORITY_FINGERPRINT = "5b7803f4e3360b1ada7fa4c10945d95a23be60de53641ccce5d6ad498271b075"
+CANONICAL_EXECUTOR_AUTHORITY_FINGERPRINT = "f0165502130d253f8ca199e4d2ae3e46f6ec7c7d5e0e3e2aeb0b2d0f4b8fbf4e"
 
 ORDER_KEY = "trace_consolidation_puis_cloture"
 
@@ -178,12 +180,24 @@ def _valid_refs(refs) -> bool:
     return isinstance(refs, list) and bool(refs) and all(isinstance(r, str) and r for r in refs)
 
 
-def _validate_authority(registry, commitment, kind):
+def _normalized_authority(registry, kind):
+    list_key = "identities" if kind == "human" else "executors"
+    id_key = "identity_ref" if kind == "human" else "executor_id"
+    principals = []
+    for principal in registry[list_key]:
+        normalized = dict(principal)
+        for key in ("roles", "allowed_action_ids", "provenance_refs"):
+            if key in normalized:
+                normalized[key] = sorted(normalized[key])
+        normalized["allowed_target_refs"] = sorted(normalized["allowed_target_refs"])
+        principals.append(normalized)
+    return {"version": registry["version"], "source": registry["source"],
+            list_key: sorted(principals, key=lambda item: item[id_key])}
+
+
+def _validate_authority(registry, kind):
     if _has_internal_leak(registry) or _has_surrogate_codepoint(registry):
         raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority"))
-    if not (isinstance(commitment, str) and len(commitment) == 64
-            and _canonical_sha256(registry) == commitment):
-        raise ValueError((AUTHORITY_FINGERPRINT_MISMATCH, f"{kind}_authority.fingerprint"))
     top_keys = _HUMAN_AUTH_KEYS if kind == "human" else _EXECUTOR_AUTH_KEYS
     list_key = "identities" if kind == "human" else "executors"
     expected_source = "HUMAN_AUTHORITY_REGISTRY" if kind == "human" else "EXECUTOR_AUTHORITY_REGISTRY"
@@ -197,15 +211,17 @@ def _validate_authority(registry, commitment, kind):
         id_key = "identity_ref" if kind == "human" else "executor_id"
         if not (isinstance(principal, dict) and set(principal) == principal_keys
                 and isinstance(principal[id_key], str) and principal[id_key]
-                and isinstance(principal["authorizations"], list)):
+                and _valid_refs(principal["allowed_action_ids"])
+                and isinstance(principal["allowed_target_refs"], list)
+                and principal["plan_binding"] == "EXACT_RECEIVED_ACTION_PLAN_ID"
+                and _valid_refs(principal["provenance_refs"])):
             raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
         if kind == "human" and not _valid_refs(principal["roles"]):
             raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
-        auth_keys = _HUMAN_AUTHZ_KEYS if kind == "human" else _EXECUTOR_AUTHZ_KEYS
-        for auth in principal["authorizations"]:
-            if not (isinstance(auth, dict) and set(auth) == auth_keys
-                    and _valid_refs(auth["provenance_refs"])):
-                raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.authorizations"))
+    expected = (CANONICAL_HUMAN_AUTHORITY_FINGERPRINT if kind == "human"
+                else CANONICAL_EXECUTOR_AUTHORITY_FINGERPRINT)
+    if _canonical_sha256(_normalized_authority(registry, kind)) != expected:
+        raise ValueError((AUTHORITY_FINGERPRINT_MISMATCH, f"{kind}_authority.canonical_commitment"))
     return registry[list_key]
 
 
@@ -215,14 +231,12 @@ def _exact_authorization(principals, id_key, principal_id, plan, provenance_refs
             continue
         if role is not None and role not in principal["roles"]:
             continue
-        for auth in principal["authorizations"]:
-            if (role is not None and auth.get("role") != role):
-                continue
-            if (auth["action_plan_id"] == plan["action_plan_id"]
-                    and auth["action_id"] == plan["action_id"]
-                    and auth["target_refs"] == plan["target_refs"]
-                    and auth["provenance_refs"] == provenance_refs):
-                return True
+        if (plan["action_plan_id"]
+                and plan["action_id"] in principal["allowed_action_ids"]
+                and plan["target_refs"] == principal["allowed_target_refs"]
+                and principal["provenance_refs"] == provenance_refs
+                and principal["plan_binding"] == "EXACT_RECEIVED_ACTION_PLAN_ID"):
+            return True
     return False
 
 
@@ -310,8 +324,7 @@ def _validate_human_decision(human_decision, plan, human_principals):
 
 
 def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict,
-                        human_authority, human_authority_fingerprint,
-                        executor_authority, executor_authority_fingerprint, execution_result=None,
+                        human_authority, executor_authority, execution_result=None,
                         human_decision=None, provenance_refs=None, ci_refs=None,
                         closed_at_context=None) -> dict:
     """Fonction PURE : enveloppe(00→10) + catalogue/permissions (pour replay) + entrées de clôture INJECTÉES
@@ -345,8 +358,8 @@ def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict,
 
     # 5) Autorités indépendantes versionnées et engagées, avant toute entrée de clôture.
     try:
-        human_principals = _validate_authority(human_authority, human_authority_fingerprint, "human")
-        executor_principals = _validate_authority(executor_authority, executor_authority_fingerprint, "executor")
+        human_principals = _validate_authority(human_authority, "human")
+        executor_principals = _validate_authority(executor_authority, "executor")
     except ValueError as e:
         code, src = e.args[0]
         return _blocked(code, src)
@@ -476,12 +489,10 @@ def _load_catalog(path=None):
         return None
 
 
-def main(envelope: dict, human_authority: dict, human_authority_fingerprint: str,
-         executor_authority: dict, executor_authority_fingerprint: str) -> dict:
+def main(envelope: dict, human_authority: dict, executor_authority: dict) -> dict:
     # Impur (fin) : catalogue chargé du fichier gelé ; entrées de clôture INJECTÉES via l'enveloppe (aucune lecture cachée dans run).
     return run_trace_and_close(
-        envelope, _load_catalog(), envelope.get("permissions"), human_authority,
-        human_authority_fingerprint, executor_authority, executor_authority_fingerprint,
+        envelope, _load_catalog(), envelope.get("permissions"), human_authority, executor_authority,
         execution_result=envelope.get("execution_result"),
         human_decision=envelope.get("human_decision"),
         provenance_refs=envelope.get("closure_provenance_refs"),

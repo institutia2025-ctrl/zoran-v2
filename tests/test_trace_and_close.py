@@ -67,24 +67,21 @@ def _permissions(granted=None):
 
 def _human_authority(plan, identity_ref="user://fred", action_id=None, target_refs=None):
     registry = {"version": "1.0.0", "source": "HUMAN_AUTHORITY_REGISTRY", "identities": [{
-        "identity_ref": identity_ref, "roles": ["ACTION_APPROVER"], "authorizations": [{
-            "role": "ACTION_APPROVER", "action_plan_id": plan["action_plan_id"],
-            "action_id": action_id if action_id is not None else plan["action_id"],
-            "target_refs": target_refs if target_refs is not None else plan["target_refs"],
-            "provenance_refs": ["prov://human/1"],
-        }],
+        "identity_ref": identity_ref, "roles": ["ACTION_APPROVER"],
+        "allowed_action_ids": [action_id if action_id is not None else "ACTION_APPLY_PATCH"],
+        "allowed_target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]],
+        "plan_binding": "EXACT_RECEIVED_ACTION_PLAN_ID", "provenance_refs": ["prov://human/1"],
     }]}
     return registry, _canonical_sha256(registry)
 
 
 def _executor_authority(plan, executor_id="EXECUTOR-1", action_id=None, target_refs=None):
     registry = {"version": "1.0.0", "source": "EXECUTOR_AUTHORITY_REGISTRY", "executors": [{
-        "executor_id": executor_id, "authorizations": [{
-            "action_plan_id": plan["action_plan_id"],
-            "action_id": action_id if action_id is not None else plan["action_id"],
-            "target_refs": target_refs if target_refs is not None else plan["target_refs"],
-            "provenance_refs": ["prov://exec/1"],
-        }],
+        "executor_id": executor_id,
+        "allowed_action_ids": ([action_id] if action_id is not None
+                               else ["ACTION_ANNOTATE", "ACTION_APPLY_PATCH"]),
+        "allowed_target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]],
+        "plan_binding": "EXACT_RECEIVED_ACTION_PLAN_ID", "provenance_refs": ["prov://exec/1"],
     }]}
     return registry, _canonical_sha256(registry)
 
@@ -144,8 +141,7 @@ def _close(env, **kw):
     human_fp = kw.pop("human_authority_fingerprint", human_fp)
     executor_authority = kw.pop("executor_authority", executor_authority)
     executor_fp = kw.pop("executor_authority_fingerprint", executor_fp)
-    return RUN(env, _catalog(), env["permissions"], human_authority, human_fp,
-               executor_authority, executor_fp, **kw)
+    return RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **kw)
 
 
 # ---------- schéma & statuts de clôture nominaux ----------
@@ -273,7 +269,7 @@ def test_CE_replay_avant_lecture_entrees_cloture():
     forged["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in forged.items() if k != "CONTENT_SHA256"})
     env["structured_decision"] = forged
     ha, hfp = _human_authority(_plan(env)); ea, efp = _executor_authority(_plan(env))
-    out = RUN(env, _catalog(), env["permissions"], ha, hfp, ea, efp,
+    out = RUN(env, _catalog(), env["permissions"], ha, ea,
               execution_result=Exploding(), human_decision=Exploding(),
               provenance_refs=Exploding(), ci_refs=Exploding(), closed_at_context="t")
     assert out["status"] == BLOCKED and _code(out) == DECISION_09_REPLAY_MISMATCH
@@ -442,6 +438,51 @@ def test_CE_executor_attacker_rehashe_bloque():
     assert _close(env, execution_result=er)["status"] == BLOCKED
 
 
+def test_CE_registre_humain_attacker_et_auto_fingerprint_bloques():
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    authority, _ = _human_authority(_plan(env), identity_ref="ATTACKER")
+    out = _close(env, human_decision=_human(_plan(env), identity_ref="ATTACKER"),
+                 human_authority=authority,
+                 human_authority_fingerprint=_canonical_sha256(authority))
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+
+
+def test_CE_registre_executeur_attacker_et_auto_fingerprint_bloques():
+    env = _full_env(action_id="ACTION_ANNOTATE")
+    authority, _ = _executor_authority(_plan(env), executor_id="ATTACKER")
+    out = _close(env, execution_result=_exec_result(_plan(env), executor_id="ATTACKER"),
+                 executor_authority=authority,
+                 executor_authority_fingerprint=_canonical_sha256(authority))
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda h, e: h["identities"].append(copy.deepcopy(h["identities"][0])),
+    lambda h, e: e["executors"].append(copy.deepcopy(e["executors"][0])),
+    lambda h, e: h["identities"][0]["roles"].append("ATTACKER_ROLE"),
+    lambda h, e: h["identities"][0].__setitem__(
+        "allowed_target_refs", [["OBJ-0001", "CODE"], ["OBJ-9999", "CODE"]]),
+    lambda h, e: e["executors"][0].__setitem__("provenance_refs", ["prov://attacker"]),
+    lambda h, e: h.__setitem__("version", "9.9.9"),
+])
+def test_CE_toute_mutation_registre_bloquee_par_engagement_canonique(mutation):
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    ha, _ = _human_authority(_plan(env)); ea, _ = _executor_authority(_plan(env))
+    mutation(ha, ea)
+    out = _close(env, human_decision=_human(_plan(env)),
+                 human_authority=ha, executor_authority=ea)
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+
+
+def test_registre_reordonne_semantiquement_identique_accepte():
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    ha, _ = _human_authority(_plan(env)); ea, _ = _executor_authority(_plan(env))
+    ea["executors"][0]["allowed_action_ids"].reverse()
+    out = _close(env, human_decision=_human(_plan(env)), execution_result=_exec_result(_plan(env)),
+                 human_authority=ha, executor_authority=ea)
+    assert out["status"] == PASS and out["closure_id"] is not None
+
+
 def test_CE_identite_valide_non_autorisee_action_bloquee():
     env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
     authority, fp = _human_authority(_plan(env), action_id="ACTION_OTHER")
@@ -490,9 +531,12 @@ def test_CE_registre_modifie_ou_version_falsifiee_bloque(kind):
 
 
 @pytest.mark.parametrize("kind", ["human", "executor"])
-def test_CE_fingerprint_autorite_divergent_bloque(kind):
+def test_CE_engagement_canonique_autorite_divergent_bloque(kind):
     env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
-    kw = {f"{kind}_authority_fingerprint": "0" * 64}
+    authority, _ = (_human_authority(_plan(env)) if kind == "human"
+                    else _executor_authority(_plan(env)))
+    authority["version"] = "9.9.9"
+    kw = {f"{kind}_authority": authority}
     out = _close(env, human_decision=_human(_plan(env)), **kw)
     assert out["status"] == BLOCKED and out["closure_id"] is None
 
@@ -503,9 +547,10 @@ def test_CE_autorite_divergente_bloque_avant_toute_entree_cloture():
             raise AssertionError("entree de cloture lue avant validation des autorites")
 
     env = _full_env(action_id="ACTION_ANNOTATE")
-    ha, _ = _human_authority(_plan(env)); ea, efp = _executor_authority(_plan(env))
+    ha, _ = _human_authority(_plan(env)); ea, _ = _executor_authority(_plan(env))
+    ha["version"] = "9.9.9"
     unread = Exploding()
-    out = RUN(env, _catalog(), env["permissions"], ha, "0" * 64, ea, efp,
+    out = RUN(env, _catalog(), env["permissions"], ha, ea,
               execution_result=unread, human_decision=unread, provenance_refs=unread,
               ci_refs=unread, closed_at_context=unread)
     assert out["status"] == BLOCKED and out["closure_id"] is None
@@ -584,7 +629,7 @@ def test_immutabilite_envelope():
 
 def test_typeerror_envelope_non_dict():
     with pytest.raises(TypeError):
-        RUN(None, _catalog(), _permissions(), {}, "0" * 64, {}, "0" * 64)
+        RUN(None, _catalog(), _permissions(), {}, {})
 
 
 def test_gouvernance_contrat_complet():
