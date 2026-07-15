@@ -1,0 +1,21 @@
+# HUMAN_DECISION_SCHEMA — schéma canonique figé de la décision humaine.
+# Consommé UNIQUEMENT par 11_TRACE_AND_CLOSE, en objet explicitement INJECTÉ et vérifiable.
+# Appariement de scope EXACT (jamais seulement inclusif) : action_plan_id, action_id, target_refs et
+# approval_scope DOIVENT correspondre EXACTEMENT au plan 10 (HUMAN_APPROVAL_REQUIRED). Tout scope
+# partiel, élargi ou différent → BLOCKED. 11 n'exécute rien : la décision ne fait qu'autoriser/refuser.
+version: "1.0.0"
+schema_id: HUMAN_DECISION_SCHEMA
+required_keys:
+  - human_decision_id        # identifiant de l'objet décision
+  - action_plan_id           # DOIT == 10.action_plan_id (exact)
+  - action_id                # DOIT == 10.action_id (exact)
+  - target_refs              # DOIT == 10.target_refs (exact)
+  - approval_scope           # DOIT == 10.approval_scope (exact)
+  - decision                 # ∈ decision_enum
+  - identity_ref             # identité du décideur humain (présente, non vide)
+  - decided_at_context       # contexte temporel INJECTÉ (jamais horloge)
+  - provenance_refs          # références de provenance explicites (non vides)
+  - CONTENT_SHA256           # hash de l'objet SANS ce champ (revalidé)
+decision_enum:
+  - APPROVED
+  - DECLINED

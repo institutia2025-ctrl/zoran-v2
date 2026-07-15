@@ -24,3 +24,5 @@ sources:
     title: Porte 9 — décision structurée déterministe à partir d'une réponse admise par 08 (sans génération)
   - id: SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN
     title: Porte 10 — admissibilité d'action (catalogue gelé) + plan borné déterministe, sans exécution
+  - id: SPEC_ENGINE_11_TRACE_AND_CLOSE
+    title: Porte 11 — clôture déterministe de la transaction (replay exact 09/10, aucune exécution ; terminal)
