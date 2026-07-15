@@ -63,7 +63,41 @@ avec :
 rho = recurrent_errors_weighted / applicable_cases_weighted
 ```
 
+Bornes obligatoires :
+
+```text
+0 <= rho <= 1
+lambda >= 0
+```
+
 Cas sans observation applicable : `INDETERMINATE_NO_APPLICABLE_REPLAY`, jamais `rho=0` inventé.
+
+### Stabilité temporelle de rho
+
+La valeur instantanée de `rho` ne suffit pas lorsque l'ensemble des classes d'erreur ou des cas applicables varie fortement. ENGINE-12 devra également exposer, sur une fenêtre de replay comparable :
+
+```text
+mean_rho_W = moyenne pondérée de rho sur la fenêtre W
+var_rho_W  = variance pondérée de rho sur la fenêtre W
+```
+
+Une baisse de `rho` accompagnée d'une forte variance ne prouve pas encore une évolution stable. La promotion canonique exige :
+
+```text
+mean_rho_W en baisse ou nul
+ET
+var_rho_W sous un seuil contractuel
+ET
+aucune récurrence P0/P1
+```
+
+Les seuils et la taille de fenêtre seront figés dans le contrat d'implémentation avant code ; ils ne doivent pas être inventés par l'agent constructeur.
+
+### Criticité et lambda
+
+`lambda` représente la pénalité de récidive. En V1, sa valeur doit être fixe et documentée. Une variation dynamique de `lambda` est interdite sans contrat dédié, car elle pourrait rendre les scores non comparables dans le temps.
+
+Une récurrence P0/P1 peut également déclencher un veto absolu indépendamment du score agrégé.
 
 ### Condition de non-récurrence
 
