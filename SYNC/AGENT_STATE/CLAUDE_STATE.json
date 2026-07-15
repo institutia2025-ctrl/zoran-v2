@@ -1,11 +1,16 @@
 {
   "AGENT": "CLAUDE",
   "ROLE": "BUILDER",
-  "STATUS": "UNKNOWN_UNTIL_ACK",
-  "LAST_MESSAGE_ID": null,
-  "LAST_ACK_ID": null,
+  "STATUS": "ACK_DONE_READY_FOR_PR7_AUDIT",
+  "LAST_MESSAGE_ID": "MSG-20260715-0846-CLAUDE-ACK1",
+  "LAST_ACK_ID": "ACK-20260715-0846-CLAUDE",
   "CURRENT_MISSION_ID": "ZORAN_V2_ENGINE_CERTIFICATION_AND_COMPLETION",
   "CURRENT_SHA": "a8ceb89c0683fd017a96addfc2a2c138dabec39e",
-  "NEXT_ACTION": "Read mailbox and acknowledge mission",
-  "UPDATED_AT": "2026-07-15T08:39:00+02:00"
+  "GITHUB_VERIFIED": {
+    "integration_head": "79b7749bb1ff40df80a363d10f60ea54c834fea3",
+    "pr7": "OPEN CLEAN a8ceb89 CI 160 passed",
+    "note": "integration NE contient PAS le hardening PR#7 (2 P0 ouverts sur base canonique)"
+  },
+  "NEXT_ACTION": "Attendre audit direct PR#7 (Codex+ChatGPT). Gate OPEN, engine-08 interdit (contrat spec pret).",
+  "UPDATED_AT": "2026-07-15T08:46:15+0200"
 }
