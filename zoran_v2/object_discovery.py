@@ -9,6 +9,8 @@ fail-closed (candidat non ancrable -> dropped, jamais inventé).
 """
 from __future__ import annotations
 
+import unicodedata
+
 COMPONENT_ID = "01_OBJECT_DISCOVERY"
 VERSION = "1.0.0"
 
@@ -22,6 +24,7 @@ GOVERNANCE = {
     "GUARD_IDS": [
         "STRUCTURED_ONLY",
         "NO_INVENTION",
+        "TEXT_IDENTITY_UNICODE_NFC",
         "FAIL_CLOSED",
         "DETERMINISTIC",
         "NO_LLM",
@@ -34,7 +37,7 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee dans seed-bootstrap ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00!=PASS ; dropped[] pour tout candidat non admissible (jamais silencieux)",
+    "ALERTE": "status=BLOCKED si 00!=PASS ; dropped[] pour tout candidat non admissible (jamais silencieux) ; identite textuelle normalisee Unicode NFC (formes equivalentes -> meme object_key)",
     "ANTI_REGRESSION": "tests non-invention + dedup + ordre + fail-closed + gouvernance ; CI bloque le merge",
 }
 
@@ -68,7 +71,10 @@ def _normalize(value):
     if isinstance(value, bool):
         return None  # un booléen n'est pas un objet-valeur
     if isinstance(value, str):
-        n = " ".join(value.split()).casefold()
+        # CSB-META-P1-003 : identité textuelle CANONIQUE. Normalisation Unicode NFC (REX #15, NFC par
+        # défaut) pour que deux chaînes canoniquement équivalentes (formes précomposée/décomposée)
+        # produisent le MÊME object_key. NFC appliqué APRÈS casefold pour recomposer la sortie.
+        n = unicodedata.normalize("NFC", " ".join(value.split()).casefold())
         return n or None
     if isinstance(value, (int, float)):
         return repr(value)
@@ -146,7 +152,10 @@ def run_object_discovery(envelope: dict) -> dict:
             _drop(i, cand, "provenance_unverified")
             continue
 
-        key = f"{kind.strip()}{_SEP}{normalized}"
+        # CSB-META-P1-003 : le `kind` fait partie de l'identite (object_key) -> il doit AUSSI etre
+        # normalise Unicode NFC (sinon deux kinds canoniquement equivalents = deux object_key).
+        kind_n = unicodedata.normalize("NFC", kind.strip())
+        key = f"{kind_n}{_SEP}{normalized}"
         off = prov.get("in_text", {}).get("offset") if "in_text" in prov else None
         if key in by_key:
             by_key[key]["provenance"].append(prov)
@@ -154,7 +163,7 @@ def run_object_discovery(envelope: dict) -> dict:
                 by_key[key]["order"] = off
         else:
             by_key[key] = {
-                "object_key": key, "kind": kind.strip(),
+                "object_key": key, "kind": kind_n,
                 "normalized": normalized, "provenance": [prov], "order": off,
             }
 
