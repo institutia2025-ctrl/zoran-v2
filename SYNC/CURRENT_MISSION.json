@@ -1,0 +1,14 @@
+{
+  "MISSION_ID": "ZORAN_V2_ENGINE_CERTIFICATION_AND_COMPLETION",
+  "STATUS": "ACTIVE",
+  "SOURCE_OF_TRUTH": "GITHUB",
+  "REPOSITORY": "institutia2025-ctrl/zoran-v2",
+  "BASE_BRANCH": "integration/v2-canonical",
+  "CURRENT_PR": 7,
+  "CURRENT_HEAD_SHA": "a8ceb89c0683fd017a96addfc2a2c138dabec39e",
+  "OBJECTIVE": "Auditer, corriger et certifier les moteurs 00-07 selon ZORAN_ENGINE_CERTIFICATION_GRID_V1, puis construire 08-11.",
+  "NEXT_REQUIRED_ACTION": "Audit direct de la PR #7 sur le SHA courant.",
+  "BLOCKERS": [],
+  "UPDATED_AT": "2026-07-15T08:38:00+02:00",
+  "UPDATED_BY": "CHATGPT"
+}
