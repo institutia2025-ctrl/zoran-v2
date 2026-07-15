@@ -27,6 +27,10 @@ import json
 
 COMPONENT_ID = "04_CANON_DETERMINATION"
 VERSION = "1.0.0"
+FULL_REGISTRY_SOURCE = "CANONS.yaml"
+FULL_REGISTRY_VERSION = "1.0.0"
+REGISTRY_NORMALIZATION_ID = "zoran_v2.canon_determination._normalize_registry"
+REGISTRY_NORMALIZATION_VERSION = "1.0.0"
 
 GOVERNANCE = {
     "OBJECT_ID": "ZORAN-V2-COMPONENT-04-CANON-DETERMINATION",
@@ -44,13 +48,14 @@ GOVERNANCE = {
         "NO_NETWORK",
         "NO_MEMORY",
         "DETERMINISTIC_REGISTRY_NORMALIZATION",
+        "FULL_REGISTRY_COMMITMENT",
         "FROZEN_REFERENTIAL_FINGERPRINT",
         "CONFLICT_LISTED_NEVER_SILENT",
         "FAIL_CLOSED",
         "DETERMINISTIC",
         "IMMUTABLE_SNAPSHOT",
     ],
-    "TRACEABILITY": "canons_selected + conflicts + uncanonized explicites ; fingerprint sha256 sur records complets ; SHA git ; run CI",
+    "TRACEABILITY": "canons_selected + conflicts + uncanonized explicites ; fingerprints du sous-ensemble applique et du registre normalise complet ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions + fingerprint du referentiel",
@@ -168,7 +173,7 @@ def _valid_object_frame_map(ofm) -> bool:
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
-    "canons_selected", "canon_referential", "conflicts",
+    "canons_selected", "canon_referential", "full_registry_commitment", "conflicts",
     "uncanonized", "resource_estimate", "order_key",
 )
 
@@ -187,11 +192,25 @@ def _empty_referential() -> dict:
     return {"fingerprint": _EMPTY_FINGERPRINT, "canons": [], "priorities": {}}
 
 
+def _full_registry_commitment(normalized_registry: list) -> dict:
+    """Engagement versionne du registre NORMALISE COMPLET, distinct du sous-referentiel applique."""
+    return {
+        "full_registry_fingerprint": _fingerprint(normalized_registry),
+        "registry_version": FULL_REGISTRY_VERSION,
+        "registry_source": FULL_REGISTRY_SOURCE,
+        "normalization": {
+            "id": REGISTRY_NORMALIZATION_ID,
+            "version": REGISTRY_NORMALIZATION_VERSION,
+        },
+    }
+
+
 def _blocked(by: str) -> dict:
     return {
         "component": COMPONENT_ID, "version": VERSION,
         "status": BLOCKED, "blocked_by": by,
         "canons_selected": [], "canon_referential": _empty_referential(),
+        "full_registry_commitment": _full_registry_commitment([]),
         "conflicts": [], "uncanonized": [],
         "resource_estimate": {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
         "order_key": ORDER_KEY,
@@ -305,6 +324,7 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
         return _blocked(OA03)
 
     norm_registry = _normalize_registry(registry)
+    full_registry_commitment = _full_registry_commitment(norm_registry)
 
     # Payloads déjà VALIDÉS (type canonique) -> accès direct, sans `or []` ni skip silencieux.
     kind_by_key = {o["object_key"]: o["kind"] for o in od["objects"]}
@@ -354,6 +374,7 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
         "status": PASS, "blocked_by": None,
         "canons_selected": canons_selected,
         "canon_referential": canon_referential,
+        "full_registry_commitment": full_registry_commitment,
         "conflicts": conflicts,
         "uncanonized": uncanonized,
         "resource_estimate": resource_estimate,

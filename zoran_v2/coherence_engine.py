@@ -22,7 +22,13 @@ from __future__ import annotations
 
 import statistics
 
-from zoran_v2.canon_determination import _fingerprint as _canon_fingerprint
+from zoran_v2.canon_determination import (
+    _clean_canon,
+    _fingerprint as _canon_fingerprint,
+    _full_registry_commitment,
+    _normalize_registry,
+    load_canon_registry,
+)
 
 COMPONENT_ID = "05_COHERENCE_ENGINE"
 VERSION = "1.0.0"
@@ -46,13 +52,15 @@ GOVERNANCE = {
         "NO_NETWORK",
         "NO_MEMORY",
         "REFERENTIAL_FINGERPRINT_VERIFIED",
+        "INDEPENDENT_FULL_REGISTRY_REQUIRED",
+        "FULL_REGISTRY_COMMITMENT_VERIFIED",
         "COVERAGE_04_VS_02_AUTHORITATIVE",
         "RESOURCE_VETO_BEFORE_07",
         "FAIL_CLOSED",
         "DETERMINISTIC",
         "IMMUTABLE_SNAPSHOT",
     ],
-    "TRACEABILITY": "coherence {delta_phi,tension,sigma,S} + resource verdict ; fingerprint 04 verifie ; SHA git ; run CI",
+    "TRACEABILITY": "coherence {delta_phi,tension,sigma,S} + resource verdict ; sous-referentiel 04 et engagement registre complet independant verifies ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
@@ -165,6 +173,34 @@ def _object_kinds(objects):
     return kinds
 
 
+def _strict_normalized_full_registry(full_registry):
+    """Normalize the independent full registry, rejecting malformed or duplicate raw records."""
+    if not isinstance(full_registry, list):
+        return None
+    seen_ids = set()
+    for canon in full_registry:
+        if not isinstance(canon, dict):
+            return None
+        canon_id = canon.get("id")
+        priority = canon.get("priority")
+        if not (isinstance(canon_id, str) and canon_id
+                and not isinstance(priority, bool) and isinstance(priority, int)):
+            return None
+        if canon_id in seen_ids:
+            return None
+        seen_ids.add(canon_id)
+        for field in ("applies_to_frames", "applies_to_kinds"):
+            values = canon.get(field)
+            if not (isinstance(values, list)
+                    and all(isinstance(value, str) and value for value in values)
+                    and len(values) == len(set(values))):
+                return None
+        if _clean_canon(canon) is None:
+            return None
+    normalized = _normalize_registry(full_registry)
+    return normalized if len(normalized) == len(full_registry) else None
+
+
 def _object_frame_pairs(ofm):
     """Couples (object_key, frame) AUTORITAIRES de 02 (object_frame_map), ou None si malformé.
 
@@ -184,7 +220,7 @@ def _object_frame_pairs(ofm):
     return pairs
 
 
-def run_coherence_engine(envelope: dict) -> dict:
+def run_coherence_engine(envelope: dict, full_registry: list | None = None) -> dict:
     """Fonction PURE : envelope(00→04) -> cohérence S canonique + verdict ressource."""
     if not isinstance(envelope, dict):
         raise TypeError("envelope doit être un dict")
@@ -197,6 +233,13 @@ def run_coherence_engine(envelope: dict) -> dict:
             return _blocked(comp)
 
     cd = envelope["canon_determination"]
+    normalized_full_registry = _strict_normalized_full_registry(full_registry)
+    if normalized_full_registry is None:
+        return _blocked(CD04)
+    commitment = cd.get("full_registry_commitment")
+    if commitment != _full_registry_commitment(normalized_full_registry):
+        return _blocked(CD04)
+
     referential = cd.get("canon_referential")
     fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
     if not (isinstance(fingerprint, str) and fingerprint):
@@ -316,7 +359,7 @@ def run_coherence_engine(envelope: dict) -> dict:
     expected_uncanonized = set()
     for object_key, frame in authoritative_pairs:
         kind = kind_by_object_key[object_key]
-        applicable = [canon for canon in frozen_canons
+        applicable = [canon for canon in normalized_full_registry
                       if frame in canon["applies_to_frames"] and kind in canon["applies_to_kinds"]]
         applicable.sort(key=lambda canon: (-canon["priority"], canon["id"]))
         if applicable:
@@ -331,6 +374,12 @@ def run_coherence_engine(envelope: dict) -> dict:
     if received_selected != expected_selected or uncanon_pairs != expected_uncanonized:
         return _blocked(CD04)
 
+    full_by_id = {canon["id"]: canon for canon in normalized_full_registry}
+    expected_frozen_ids = sorted({canon_id for ids in expected_selected.values() for canon_id in ids})
+    expected_frozen_canons = [full_by_id[canon_id] for canon_id in expected_frozen_ids]
+    if frozen_canons != expected_frozen_canons:
+        return _blocked(CD04)
+
     # E11 — REVALIDATION EXACTE de la preuve de tension (GC-05-P1-E11-CONFLICT-EXACTNESS). `conflicts`
     # alimente tension = len(conflicts)/total_pairs. 05 ne valide PAS les conflits isolément (gardes
     # contournables) : il RECONSTRUIT l'ensemble autoritaire que 04 peut produire à partir de
@@ -341,7 +390,7 @@ def run_coherence_engine(envelope: dict) -> dict:
     # paire/priorité, groupe partiel, ordre non canonique, conflit omis/ajouté. (Non-dict et
     # object_key/frame non-str déjà rejetés par _keys_all_str.)
     priority_by_id = {}
-    for c in frozen_canons:
+    for c in normalized_full_registry:
         p = c.get("priority")
         if isinstance(p, bool) or not isinstance(p, int):
             return _blocked(FINGERPRINT_MISMATCH)  # référentiel gelé sans priorité entière -> fail-closed
@@ -434,4 +483,4 @@ def run_coherence_engine(envelope: dict) -> dict:
 
 
 def main(envelope: dict) -> dict:
-    return run_coherence_engine(envelope)
+    return run_coherence_engine(envelope, load_canon_registry())

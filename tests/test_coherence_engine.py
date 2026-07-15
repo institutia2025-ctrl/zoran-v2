@@ -20,9 +20,13 @@ from zoran_v2.coherence_engine import (
     PASS,
     PROVENANCE_DECL,
     VERSION,
-    run_coherence_engine,
+    run_coherence_engine as _run_coherence_engine,
 )
-from zoran_v2.canon_determination import _fingerprint as _canon_fp
+from zoran_v2.canon_determination import (
+    _fingerprint as _canon_fp,
+    _full_registry_commitment,
+    _normalize_registry,
+)
 
 
 def _ref_from_selected(canons_selected):
@@ -42,18 +46,21 @@ def _ref_from_selected(canons_selected):
 
 
 def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint=None,
-        referential_canons=None, re=None):
+        referential_canons=None, re=None, full_registry=None, commitment=None):
     cs = canons_selected or []
     # Référentiel : explicite si fourni, sinon dérivé des canons sélectionnés (couvre-les tous).
     rc = referential_canons if referential_canons is not None else _ref_from_selected(cs)
     # Par défaut, fingerprint VALIDE (recalculé) ; passer fingerprint=... pour tester l'invalide.
     fp = fingerprint if fingerprint is not None else _canon_fp(rc)
+    committed_registry = full_registry if full_registry is not None else rc
+    normalized_committed = _normalize_registry(committed_registry) if isinstance(committed_registry, list) else []
     return {
         "status": PASS,
         "canons_selected": cs,
         "uncanonized": uncanonized or [],
         "conflicts": conflicts or [],
         "canon_referential": {"fingerprint": fp, "canons": rc, "priorities": {}},
+        "full_registry_commitment": commitment or _full_registry_commitment(normalized_committed),
         "resource_estimate": re or {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
     }
 
@@ -88,6 +95,16 @@ def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st=
         "operants_operes": oan,
         "canon_determination": cdn,
     }
+
+
+def run_coherence_engine(envelope, full_registry=None):
+    """Legacy-fixture adapter: every production call still uses the new explicit registry argument."""
+    if full_registry is None:
+        cd = envelope.get("canon_determination", {}) if isinstance(envelope, dict) else {}
+        referential = cd.get("canon_referential", {}) if isinstance(cd, dict) else {}
+        raw = referential.get("canons", []) if isinstance(referential, dict) else []
+        full_registry = _normalize_registry(raw) if isinstance(raw, list) else []
+    return _run_coherence_engine(envelope, full_registry)
 
 
 def test_output_schema_exact_pass_et_blocked():
@@ -380,9 +397,9 @@ def test_conteneur_falsy_non_liste_bloque_pas_normalise():
 def test_conteneur_none_ou_absent_reste_legitime():
     # None / clé absente = liste vide LÉGITIME (ne pas sur-bloquer) -> PASS dégénéré.
     canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
-    base = _cd(referential_canons=canons)
+    base = _cd(referential_canons=[], full_registry=canons)
     cd = {**base, "canons_selected": None, "uncanonized": None, "conflicts": None}
-    v = run_coherence_engine(_env(cd=cd))
+    v = run_coherence_engine(_env(cd=cd), canons)
     assert v["status"] == PASS
 
 
@@ -584,6 +601,105 @@ def test_05_canon_gele_inapplicable_au_frame_et_kind_bloque():
     assert verdict["blocked_by"] == CD04
 
 
+def test_05_registre_complet_ab_payload_04_ampute_a_bloque():
+    """GC-05-P1-CANON-REGISTRY-COMPLETENESS, contre-exemple rouge exact."""
+    from zoran_v2.coherence_engine import CD04
+
+    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"],
+         "applies_to_kinds": ["code"]}
+    b = {"id": "B", "priority": 10, "applies_to_frames": ["CODE"],
+         "applies_to_kinds": ["code"]}
+    full_registry = [a, b]
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
+             referential_canons=[a])
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+
+    verdict = _run_coherence_engine(_env(
+        cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}],
+    ), full_registry)
+
+    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
+
+
+def test_05_engagement_complet_ab_selection_04_amputee_a_bloque():
+    from zoran_v2.coherence_engine import CD04
+    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    b = {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    registry = [a, b]
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
+             referential_canons=[a], full_registry=registry)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    verdict = _run_coherence_engine(
+        _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
+    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
+
+
+def test_05_registre_complet_absent_bloque_sans_fallback():
+    from zoran_v2.coherence_engine import CD04
+    verdict = _run_coherence_engine(_env())
+    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
+
+
+def test_05_engagement_fingerprint_version_source_divergents_bloquent():
+    from zoran_v2.coherence_engine import CD04
+    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    registry = [a]
+    base = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
+               referential_canons=[a], full_registry=registry)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    for field, value in (("full_registry_fingerprint", "fraud"),
+                         ("registry_version", "9.9.9"),
+                         ("registry_source", "OTHER.yaml")):
+        cd = copy.deepcopy(base)
+        cd["full_registry_commitment"][field] = value
+        verdict = _run_coherence_engine(
+            _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
+        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04, field
+    for field, value in (("id", "other.normalizer"), ("version", "9.9.9")):
+        cd = copy.deepcopy(base)
+        cd["full_registry_commitment"]["normalization"][field] = value
+        verdict = _run_coherence_engine(
+            _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
+        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04, field
+
+
+def test_05_registre_complet_malforme_ou_doublonne_bloque():
+    from zoran_v2.coherence_engine import CD04
+    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
+             referential_canons=[a], full_registry=[a])
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    envelope = _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}])
+    for bad in (None, {}, [a, copy.deepcopy(a)], [{"id": "A"}],
+                [{**a, "applies_to_frames": ["CODE", "CODE"]}]):
+        verdict = _run_coherence_engine(envelope, bad)
+        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04, bad
+
+
+def test_05_registre_complet_valide_sous_ensemble_applicable_a_seul_passe():
+    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    b = {"id": "B", "priority": 10, "applies_to_frames": ["TEXT"], "applies_to_kinds": ["text"]}
+    registry = [a, b]
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
+             referential_canons=[a], full_registry=registry)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    verdict = _run_coherence_engine(
+        _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
+    assert verdict["status"] == PASS
+
+
+def test_05_registre_complet_valide_couverture_ab_passe():
+    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    b = {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
+    registry = [a, b]
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             referential_canons=registry, full_registry=registry)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    verdict = _run_coherence_engine(
+        _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
+    assert verdict["status"] == PASS
+
+
 def test_05_canons_applicables_exacts_passent():
     canons = [
         {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
@@ -599,8 +715,10 @@ def test_05_canons_applicables_exacts_passent():
 def test_05_aucun_canon_applicable_exige_uncanonized_exact():
     c_text = [{"id": "C_TEXT", "priority": 10, "applies_to_frames": ["TEXT"],
                "applies_to_kinds": ["text"]}]
-    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}], referential_canons=c_text)
-    verdict = run_coherence_engine(_env(cd=cd, objects=[{"object_key": "k1", "kind": "code"}]))
+    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}], referential_canons=[],
+             full_registry=c_text)
+    verdict = run_coherence_engine(
+        _env(cd=cd, objects=[{"object_key": "k1", "kind": "code"}]), c_text)
     assert verdict["status"] == PASS
 
 
