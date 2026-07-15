@@ -4,11 +4,24 @@
   "SOURCE_OF_TRUTH": "GITHUB",
   "REPOSITORY": "institutia2025-ctrl/zoran-v2",
   "BASE_BRANCH": "integration/v2-canonical",
-  "CURRENT_PR": 7,
-  "CURRENT_HEAD_SHA": "a8ceb89c0683fd017a96addfc2a2c138dabec39e",
-  "OBJECTIVE": "Auditer, corriger et certifier les moteurs 00-07 selon ZORAN_ENGINE_CERTIFICATION_GRID_V1, puis construire 08-11.",
-  "NEXT_REQUIRED_ACTION": "Audit direct de la PR #7 sur le SHA courant.",
-  "BLOCKERS": [],
-  "UPDATED_AT": "2026-07-15T08:38:00+02:00",
-  "UPDATED_BY": "CHATGPT"
+  "PHASE": "ENGINE_08_CONTRACT_AND_BUILD",
+  "CURRENT_PR": null,
+  "CURRENT_HEAD_SHA": "6d3f3898a5c7352105f07a03098e7fb22d89899f",
+  "BASELINE_TAG": "certified/v2-integration-00-07-hardening",
+  "CORRECTION_GATE": "CLOSED",
+  "OBJECTIVE": "00-07 certifies (double-audit) et merges. Materialiser le contrat ENGINE-08 (COHERENCE_2) puis construire 08 sous la grille ; ensuite 09-11.",
+  "NEXT_REQUIRED_ACTION": "Materialiser le contrat de reponse structuree (07.response) puis construire 08. GO_CONTRACT_ENGINE_08 recu ; GO_CODE_08 conditionnel a la validation du schema de reponse.",
+  "PR7_RESULT": {
+    "double_audit_sha": "d206b7eaa540151e5be185aec6b1c29de7b89379",
+    "chatgpt_global_coherence": "APPROVED (MSG-20260715T105100-FRED-010)",
+    "codex_local_diff": "APPROVED (MSG-20260715T105211-CODEX-011)",
+    "merge_commit": "6d3f3898a5c7352105f07a03098e7fb22d89899f",
+    "ci": "success run 29402762441, 192 passed (Python 3.13)",
+    "merge_mode": "non-squash"
+  },
+  "BLOCKERS": [
+    "BLOCKED_RESPONSE_CONTRACT_MISSING : 07.response n'a aucun schema structure (llm_execution.py:262 renvoie le retour brut du client). 08 exige un contrat de reponse deterministe -> schema propose, en attente de validation avant GO_CODE_08."
+  ],
+  "UPDATED_AT": "2026-07-15T11:08:01+02:00",
+  "UPDATED_BY": "CLAUDE"
 }
