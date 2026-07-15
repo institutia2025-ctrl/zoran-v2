@@ -20,6 +20,7 @@ Ce document est la feuille de route canonique de construction du pipeline de rai
 → 10_RESERVED_BY_CANONICAL_CONTRACT
 → 11_TRACE_AND_CLOSE
 → 12_COHERENT_EVOLUTION
+→ 13_HISTORICAL_DIFFERENTIAL_INFERENCE
 → EXTERNAL_INDEPENDENT_CERTIFICATION_BY_CLAUDE
 ```
 
@@ -42,7 +43,7 @@ Transformer toute erreur confirmée en apprentissage systémique persistant :
 
 ### Position
 
-ENGINE-12 est le dernier moteur du plan de raisonnement V2. Il intervient après `11_TRACE_AND_CLOSE`.
+ENGINE-12 intervient après `11_TRACE_AND_CLOSE` et avant `13_HISTORICAL_DIFFERENTIAL_INFERENCE`.
 
 ### Prérequis absolus
 
@@ -164,16 +165,92 @@ a_e(x;v_e)=1 implique r_e(x)=0.
 
 ENGINE-12 ne remplace pas les audits externes. Il produit des mesures, guards et propositions d'évolution ; Fred reste l'autorité de GO et les certificateurs externes restent obligatoires.
 
+## ENGINE-13 — 13_HISTORICAL_DIFFERENTIAL_INFERENCE
+
+### Fonction
+
+Produire une réponse différentielle historiquement augmentée. ENGINE-13 identifie un cadre historique autoritaire comparable, vérifie les invariants, calcule le delta du cadre présent, réutilise uniquement les conclusions encore valides et raisonne seulement sur ce qui a changé.
+
+### Formule canonique
+
+```text
+R_t = R_previous_valid + F(delta_C) - I(delta_C)
+```
+
+avec :
+
+```text
+delta_C = (A_plus, A_minus, A_modified, X_contradictions)
+```
+
+- `A_plus` : éléments ajoutés ;
+- `A_minus` : éléments supprimés ;
+- `A_modified` : éléments modifiés ;
+- `X_contradictions` : contradictions nouvelles ;
+- `F` : opérateur d'augmentation ;
+- `I` : opérateur d'invalidation.
+
+La notation ASCII ci-dessus est obligatoire dans le dépôt pour éviter les caractères mathématiques illisibles ou corrompus.
+
+### Verdicts structurants
+
+```text
+HISTORICAL_REPLAY_NO_DELTA
+HISTORICAL_FRAME_AUGMENTED
+HISTORICAL_FRAME_BREAK
+HISTORICAL_SURFACE_SIMILARITY
+HISTORICAL_INDETERMINATE
+BLOCKED
+```
+
+### Principe PRACH
+
+`PRACH = PRINCIPE_DE_REPONSE_AUGMENTEE_PAR_COHERENCE_HISTORIQUE`.
+
+Si aucun delta pertinent n'existe, le moteur ne répète pas le raisonnement antérieur et demande l'action nouvelle attendue. Si le cadre est augmenté sans rupture d'invariant, il conserve le déjà-validé et calcule seulement les nouvelles possibilités. Si un invariant critique change, il invalide explicitement les conclusions concernées et reconstruit uniquement la partie nécessaire.
+
+### Architecture historique
+
+Architecture hybride obligatoire :
+
+- index sémantique ou vectoriel pour proposer des candidats uniquement ;
+- graphe ou magasin d'objets comme source autoritaire ;
+- journal chronologique immuable ;
+- validation déterministe des invariants, de la provenance et du delta.
+
+Aucun score de similarité n'a de pouvoir de verdict.
+
+### Position
+
+ENGINE-13 est le dernier moteur du plan de raisonnement V2. Il intervient après `12_COHERENT_EVOLUTION`.
+
+ENGINE-12 transforme les erreurs confirmées en apprentissages persistants. ENGINE-13 exploite l'histoire autoritaire pour produire une réponse non redondante, différentielle et augmentée.
+
+### Prérequis absolus
+
+- moteurs `00→12` construits et certifiés ;
+- gate global `00→12` PASS ;
+- contrat `specs/CONTRACT_ENGINE_13_HISTORICAL_DIFFERENTIAL_INFERENCE.md` validé extérieurement ;
+- schémas des objets historiques figés ;
+- politiques d'invariants versionnées ;
+- dataset de cas identiques, augmentés, rompus et faux-similaires ;
+- vérité de référence indépendante ;
+- aucun code ENGINE-13 avant GO explicite de Fred.
+
+### Règle de construction
+
+ENGINE-13 ne remplace ni la mémoire, ni ENGINE-12, ni les audits externes. Toute réutilisation d'une conclusion historique doit être traçable, limitée à son périmètre et conditionnée au maintien des invariants applicables.
+
 ## Certification indépendante finale par Claude
 
-Après construction, intégration et certification interne de tous les moteurs `00→12`, un paquet autonome, figé et indépendant de GitHub doit être soumis à **Claude Assistant** pour un audit externe final.
+Après construction, intégration et certification interne de tous les moteurs `00→13`, un paquet autonome, figé et indépendant de GitHub doit être soumis à **Claude Assistant** pour un audit externe final.
 
 ### Paquet requis
 
 Le paquet contient au minimum :
 
 - `AGENTS.md` ;
-- plan canonique `00→12` ;
+- plan canonique `00→13` ;
 - contrats de tous les moteurs ;
 - code source exact lié à un SHA figé ;
 - tests et résultats CI ;
@@ -212,4 +289,4 @@ AUDIT_CLAUDE_PRELIMINAIRE
 - Une amélioration locale est interdite si `delta_S_global < 0`.
 - Toute erreur confirmée doit enrichir la règle de non-récurrence cohérente.
 - Aucune formule n'est canonique sur la seule base de sa cohérence algébrique.
-- Après certification interne de `00→12`, la certification indépendante finale par Claude est obligatoire avant promotion finale de ZORAN V2.
+- Après certification interne de `00→13`, la certification indépendante finale par Claude est obligatoire avant promotion finale de ZORAN V2.
