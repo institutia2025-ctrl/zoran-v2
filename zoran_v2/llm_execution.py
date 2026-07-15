@@ -27,6 +27,7 @@ GOVERNANCE = {
         "SINGLE_CALL_NO_PRECHOICES",
         "REQUIRES_05_06_AUTHORIZATION",
         "REQUEST_SCHEMA_VALIDATED_06_TO_07",
+        "REQUEST_VALUES_TRACE_TO_ENVELOPE_PROVENANCE",
         "INJECTED_CLIENT",
         "NO_NETWORK_WITHOUT_CLIENT",
         "NO_MEMORY",
@@ -160,6 +161,48 @@ def _request_well_formed(request) -> bool:
         return False
     return True
 
+
+def _request_traces_to_envelope(request: dict, envelope: dict) -> bool:
+    """Validation de PROVENANCE (finding GC-5FD-001) : chaque valeur STRUCTURELLE de la requête 06
+    doit TRACER à l'amont autoritaire de l'enveloppe (01/03/04). Une valeur injectée en 06 mais
+    ABSENTE de l'amont (ex. kind='Jean Dupont', canons=['dossier médical de X']) est refusée AVANT
+    tout appel — ce que le type/format seuls ne peuvent attraper.
+
+    CONVERGENT (contrairement aux heuristiques de contenu) : l'ensemble autorisé est FINI et défini
+    par l'amont réel, pas deviné. Ce n'est pas une ré-assemblage de 06 mais un contrôle de
+    CONTENANCE (⊆). NB : `kind` reste du texte utilisateur par conception 01 ; on garantit seulement
+    qu'aucune valeur n'est ajoutée au-delà de ce que le pipeline a réellement produit (le contenu
+    que l'utilisateur met dans son propre kind relève de 01/06, hors 07).
+    """
+    od = envelope.get("object_discovery") or {}
+    cd = envelope.get("canon_determination") or {}
+    oa = envelope.get("operants_operes") or {}
+
+    valid_kinds = {o.get("kind") for o in (od.get("objects") or []) if isinstance(o, dict)}
+    canons_selected = cd.get("canons_selected") or []
+    analysis = oa.get("analysis") or []
+    valid_frames = ({c.get("frame") for c in canons_selected if isinstance(c, dict)}
+                    | {a.get("frame") for a in analysis if isinstance(a, dict)})
+    valid_canons = {cn for c in canons_selected if isinstance(c, dict) for cn in (c.get("canons") or [])}
+    valid_operants = {op for a in analysis if isinstance(a, dict) for op in (a.get("operants") or [])}
+
+    # Le fingerprint porté doit être CELUI du référentiel réellement gelé par 04 (pas un autre).
+    referential = cd.get("canon_referential") or {}
+    if request.get("referential_fingerprint") != referential.get("fingerprint"):
+        return False
+    if not set(request.get("frames") or []) <= valid_frames:
+        return False
+    for t in (request.get("targets") or []):
+        if t.get("kind") is not None and t.get("kind") not in valid_kinds:
+            return False
+        if t.get("frame") not in valid_frames:
+            return False
+        if not set(t.get("canons") or []) <= valid_canons:
+            return False
+        if not set(t.get("operants") or []) <= valid_operants:
+            return False
+    return True
+
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
     "executed", "response", "error", "order_key",
@@ -203,6 +246,10 @@ def run_llm_execution(envelope: dict, llm_client=None) -> dict:
     # la requête n'est pas STRUCTURELLEMENT conforme au contrat 06 (finding audit P1). Une enveloppe
     # 06 malformée/tamperée (llm_request=None, non-dict, ou portant un object_key) est bloquée ICI.
     if not _request_well_formed(request):
+        return _blocked(MALFORMED_REQUEST)
+    # Provenance (GC-5FD-001) : au-delà du schéma/type, chaque valeur doit tracer à l'amont réel.
+    # Bloque une PII injectée dans une valeur au type pourtant autorisé (kind/canons/operants/frame).
+    if not _request_traces_to_envelope(request, envelope):
         return _blocked(MALFORMED_REQUEST)
     if not callable(llm_client):
         return _blocked(NO_CLIENT)  # autorisé mais pas de client -> fail-closed

@@ -333,3 +333,15 @@ def test_conteneur_none_ou_absent_reste_legitime():
     cd = {**base, "canons_selected": None, "uncanonized": None, "conflicts": None}
     v = run_coherence_engine(_env(cd=cd))
     assert v["status"] == PASS
+
+
+def test_conflicts_element_non_dict_bloque():
+    # GC-5FD-002 : un élément non-dict de conflicts doit BLOQUER (fail-closed), pas passer via len().
+    from zoran_v2.coherence_engine import MALFORMED
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    base = _cd(referential_canons=canons,
+               canons_selected=[{"object_key": "k", "frame": "CODE", "canons": ["C"]}])
+    cd = {**base, "conflicts": [{"object_key": "k", "frame": "CODE"}, "GARBAGE_NON_DICT"]}
+    oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED

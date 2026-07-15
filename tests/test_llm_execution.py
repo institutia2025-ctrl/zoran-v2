@@ -24,25 +24,31 @@ from zoran_v2.llm_execution import (
 from zoran_v2.llm_request_build import run_llm_request_build
 
 
+# Enveloppe amont 00->05 RÉELLE : sert à la fois à construire une requête 06 authentique ET de
+# source de PROVENANCE pour 07 (kind/frame/canons/operants doivent tracer ici). Toute valeur
+# ABSENTE de cet amont, injectée dans la requête, doit être rejetée par 07.
+_ENV06 = {
+    "runtime_check": {"status": "PASS"},
+    "object_discovery": {"status": "PASS", "objects": [{"object_key": "k1", "kind": "code"}]},
+    "frame_selection": {"status": "PASS"},
+    "operants_operes": {"status": "PASS",
+                        "analysis": [{"object_key": "k1", "frame": "CODE", "operants": ["OP_DESCRIBE"]}]},
+    "canon_determination": {"status": "PASS",
+        "canons_selected": [{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+        "canon_referential": {"fingerprint": "FP", "canons": [], "priorities": {}}},
+    "coherence_engine": {"status": "PASS", "coherence": {"S": 1.0},
+                        "resource": {"authorize_llm": True, "delta_phi_min": 0.5}},
+}
+
+
 def _real_06_request():
-    """Requête RÉELLE produite par 06_LLM_REQUEST_BUILD (source de vérité du schéma 06->07).
+    """Requête RÉELLE produite par 06_LLM_REQUEST_BUILD (source de vérité du schéma + provenance).
 
     Prouve que 07 accepte EXACTEMENT ce que 06 émet (aucun faux blocage), et fournit une base
     valide que les tests de régression dégradent pour vérifier le fail-closed.
     """
-    env06 = {
-        "runtime_check": {"status": "PASS"},
-        "object_discovery": {"status": "PASS", "objects": [{"object_key": "k1", "kind": "code"}]},
-        "frame_selection": {"status": "PASS"},
-        "operants_operes": {"status": "PASS",
-                            "analysis": [{"object_key": "k1", "frame": "CODE", "operants": ["OP_DESCRIBE"]}]},
-        "canon_determination": {"status": "PASS",
-            "canons_selected": [{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
-            "canon_referential": {"fingerprint": "FP", "canons": [], "priorities": {}}},
-        "coherence_engine": {"status": "PASS", "coherence": {"S": 1.0},
-                            "resource": {"authorize_llm": True, "delta_phi_min": 0.5}},
-    }
-    out = run_llm_request_build(env06)
+    import copy as _copy
+    out = run_llm_request_build(_copy.deepcopy(_ENV06))
     assert out["authorized"] is True and out["llm_request"] is not None
     return out["llm_request"]
 
@@ -51,9 +57,8 @@ _VALID_REQUEST = _real_06_request()
 
 
 def _env(authorized=True, request=None, **overrides):
-    base = {k: {"status": "PASS"} for k in (
-        "runtime_check", "object_discovery", "frame_selection",
-        "operants_operes", "canon_determination", "coherence_engine")}
+    # Amont RÉEL (_ENV06) pour que la validation de PROVENANCE de 07 reconnaisse les valeurs.
+    base = {k: copy.deepcopy(v) for k, v in _ENV06.items()}
     base["llm_request_build"] = {
         "status": "PASS", "authorized": authorized,
         # Défaut = requête VALIDE (schéma 06). Les tests de frontière passent une requête dégradée.
@@ -285,5 +290,52 @@ def test_target_cle_manquante_bloque():
     # clés EXACTES par cible : une cible amputée d'un champ (ex. operants) est refusée.
     incomplete = {k: v for k, v in _VALID_REQUEST["targets"][0].items() if k != "operants"}
     bad = dict(_VALID_REQUEST, targets=[incomplete])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+# --- RÉGRESSIONS audit ChatGPT GC-5FD-001 2026-07-15 : PROVENANCE (PII SANS séparateur \x1f) ---
+
+def test_pii_sans_separateur_dans_kind_bloque_par_provenance():
+    # LE finding : kind='Jean Dupont' est une str VALIDE (type ok) SANS \x1f -> le verrou séparateur
+    # ne l'attrape pas. La PROVENANCE doit le bloquer : 'Jean Dupont' n'est pas un kind de l'amont 01.
+    leaky = dict(_VALID_REQUEST["targets"][0], kind="Jean Dupont")
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_pii_sans_separateur_dans_canons_bloque_par_provenance():
+    leaky = dict(_VALID_REQUEST["targets"][0], canons=["dossier medical de Jean Dupont"])
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_operant_injecte_hors_amont_bloque():
+    leaky = dict(_VALID_REQUEST["targets"][0], operants=["OP_DESCRIBE", "OP_INJECTE"])
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_frame_injecte_hors_amont_bloque():
+    leaky = dict(_VALID_REQUEST["targets"][0], frame="FRONTEND")  # absent de l'amont (CODE seul)
+    bad = dict(_VALID_REQUEST, targets=[leaky], frames=["FRONTEND"])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_fingerprint_non_conforme_amont_bloque():
+    # Le fingerprint porté doit être celui gelé par 04 ; un autre (même bien formé) -> refus.
+    bad = dict(_VALID_REQUEST, referential_fingerprint="AUTRE_FINGERPRINT")
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_frames_racine_hors_amont_bloque():
+    bad = dict(_VALID_REQUEST, frames=["CODE", "SITE"])  # SITE absent de l'amont
     v = run_llm_execution(_env(request=bad), lambda r: "x")
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST

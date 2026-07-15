@@ -185,7 +185,9 @@ def run_coherence_engine(envelope: dict) -> dict:
     analysis = analysis or []
 
     # Entrée malformée (object_key/frame non-str -> non hashable) -> fail-closed, jamais un crash.
-    if not _keys_all_str(canons_selected, uncanonized, analysis):
+    # `conflicts` est validé au même titre (finding GC-5FD-002 : un élément non-dict de conflicts
+    # ne doit pas passer silencieusement — sinon 04 malformé garde un statut PASS).
+    if not _keys_all_str(canons_selected, uncanonized, analysis, conflicts):
         return _blocked(MALFORMED)
 
     operant_pairs = {
