@@ -226,6 +226,18 @@ def test_CE16_meme_fingerprint_contenu_different_id_different():
 
 # ---------- T-2 : conservation EXACTE des chaînes (point 2 Fred) ----------
 
+def test_decision_id_differe_si_seul_kind_public_differe():
+    target_code = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+                    "canons": ["C"], "operants": ["OP"]}]
+    target_text = [{"object_public_id": "OBJ-0001", "kind_public": "text", "frame": "CODE",
+                    "canons": ["C"], "operants": ["OP"]}]
+
+    id_code = run_structured_decision(_env(targets=target_code))["decision_id"]
+    id_text = run_structured_decision(_env(targets=target_text))["decision_id"]
+
+    assert id_code != id_text
+
+
 def _env_for_canon(canon):
     tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
              "canons": [canon], "operants": ["OP"]}]

@@ -32,6 +32,7 @@ GOVERNANCE = {
         "FAIL_CLOSED", "ANTI_LEAK", "IMMUTABLE", "DETERMINISTIC",
         "ADMITTED_ONLY_08_ACCEPT", "FINGERPRINT_CHAIN_04_07_08", "EXACT_COVERAGE_06_TARGETS",
         "CANONICAL_PRIMITIVE_REUSED", "OBJECT_FIRST_CONTENT_SHA256", "EXACT_STRING_PRESERVATION",
+        "DECISION_ID_COVERS_COMPLETE_TARGET_CONTEXT",
     ],
     "TRACEABILITY": "objet-decision {decision_id, CONTENT_SHA256, claims_retained/rejected, constraints, justification_refs} ; primitive canonique _fingerprint reutilisee ; fingerprints 04/07 ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
@@ -348,7 +349,7 @@ def run_structured_decision(envelope: dict) -> dict:
         for (o, f) in sorted(expected)
     ]
     normalized_targets = [
-        {"object_public_id": o, "frame": f,
+        {"object_public_id": o, "kind_public": expected[(o, f)]["kind_public"], "frame": f,
          "canons": sorted(expected[(o, f)]["canons"]), "operants": sorted(expected[(o, f)]["operants"])}
         for (o, f) in sorted(expected)
     ]
