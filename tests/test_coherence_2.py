@@ -58,7 +58,8 @@ def _env(response=None, s_pre=0.5, targets=None, executed=True, fingerprint="FP"
         "canon_determination": {"status": "PASS",
                                 "canon_referential": {"fingerprint": fingerprint,
                                                       "canons": [{"id": "C"}, {"id": "C1"}, {"id": "C2"}]}},
-        "coherence_engine": {"status": "PASS", "coherence": {"S": s_pre}},
+        "coherence_engine": {"status": "PASS", "coherence": {
+            "S": s_pre, "referential_fingerprint": fingerprint}},
         "llm_request_build": {"status": "PASS", "authorized": True, "llm_request": req},
         "llm_execution": {"status": "PASS", "executed": executed,
                           "response": response if response is not None else _resp()},
@@ -115,6 +116,37 @@ def test_blocked_fingerprint_04_absent():
     assert v["status"] == BLOCKED and v["blocked_by"] == FINGERPRINT_MISSING
 
 
+def test_blocked_fingerprint_04_divergent_du_fingerprint_valide_par_05():
+    """GC-08-P1-FINGERPRINT-CHAIN-05-04 : 04/06/07 altérés ne peuvent supplanter 05."""
+    from zoran_v2.coherence_2 import FINGERPRINT_CHAIN_MISMATCH
+
+    env = _env(fingerprint="FP_ORIGINAL")
+    env["coherence_engine"]["coherence"]["referential_fingerprint"] = "FP_ORIGINAL"
+    env["canon_determination"]["canon_referential"]["fingerprint"] = "FP_FALSIFIE"
+    env["llm_request_build"]["llm_request"]["referential_fingerprint"] = "FP_FALSIFIE"
+    env["llm_execution"]["response"]["referential_fingerprint"] = "FP_FALSIFIE"
+
+    v = run_coherence_2(env)
+
+    assert v["status"] == BLOCKED
+    assert v["blocked_by"] == FINGERPRINT_CHAIN_MISMATCH
+    assert v["authorize_09"] is False
+
+
+@pytest.mark.parametrize("bad", [None, "", 1, True, [], {}])
+def test_blocked_fingerprint_05_absent_vide_ou_non_chaine(bad):
+    from zoran_v2.coherence_2 import FINGERPRINT_MISSING
+
+    env = _env()
+    env["coherence_engine"]["coherence"]["referential_fingerprint"] = bad
+
+    v = run_coherence_2(env)
+
+    assert v["status"] == BLOCKED
+    assert v["blocked_by"] == FINGERPRINT_MISSING
+    assert v["authorize_09"] is False
+
+
 def test_blocked_enveloppe_malformee_requete_absente():
     from zoran_v2.coherence_2 import ENVELOPE_MALFORMED
     env = _env()
@@ -126,7 +158,8 @@ def test_blocked_enveloppe_malformee_requete_absente():
 def test_blocked_s_pre_absent():
     from zoran_v2.coherence_2 import ENVELOPE_MALFORMED
     env = _env()
-    env["coherence_engine"]["coherence"] = {"S": None}
+    env["coherence_engine"]["coherence"] = {
+        "S": None, "referential_fingerprint": "FP"}
     v = run_coherence_2(env)
     assert v["status"] == BLOCKED and v["blocked_by"] == ENVELOPE_MALFORMED
 
@@ -275,7 +308,8 @@ def test_blocked_05_s_non_fini():
     from zoran_v2.coherence_2 import ENVELOPE_MALFORMED
     for bad in (float("nan"), float("inf"), float("-inf")):
         env = _env()
-        env["coherence_engine"] = {"status": "PASS", "coherence": {"S": bad}}
+        env["coherence_engine"] = {"status": "PASS", "coherence": {
+            "S": bad, "referential_fingerprint": "FP"}}
         # la requête 06 par défaut porte coherence_S=0.5 ; peu importe, 05 non-fini bloque d'abord.
         v = run_coherence_2(env)
         assert v["status"] == BLOCKED and v["blocked_by"] == ENVELOPE_MALFORMED, bad

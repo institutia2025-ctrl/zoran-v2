@@ -60,6 +60,7 @@ GOVERNANCE = {
         "REQUEST_06_REVALIDATED_STRICT_FAIL_CLOSED",
         "REQUEST_06_AUTHORIZED_REVALIDATED",
         "COHERENCE_S_06_MATCHES_05_FINITE",
+        "REFERENTIAL_FINGERPRINT_04_MATCHES_05",
         "CANONS_OPERANTS_06_TRACE_04_03",
         "REFERENTIAL_FINGERPRINT_VERIFIED",
         "PROVENANCE_TO_03_04_05_06",
@@ -113,6 +114,7 @@ _STEPS_00_07 = (
 NOT_EXECUTED = "07_LLM_EXECUTION_NOT_EXECUTED"
 ENVELOPE_MALFORMED = "08_COHERENCE_2_ENVELOPE_MALFORMED"
 FINGERPRINT_MISSING = "08_COHERENCE_2_FINGERPRINT_MISSING"
+FINGERPRINT_CHAIN_MISMATCH = "08_COHERENCE_2_FINGERPRINT_CHAIN_05_04_MISMATCH"
 ORDER_KEY = "coherence_post_llm"
 
 # Contrat de réponse FIGÉ (07.response).
@@ -276,6 +278,13 @@ def run_coherence_2(envelope: dict) -> dict:
     fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
     if not (isinstance(fingerprint, str) and fingerprint):
         return _blocked(FINGERPRINT_MISSING)
+    ce = envelope["coherence_engine"]
+    coherence5 = ce.get("coherence")
+    fingerprint5 = coherence5.get("referential_fingerprint") if isinstance(coherence5, dict) else None
+    if not (isinstance(fingerprint5, str) and fingerprint5):
+        return _blocked(FINGERPRINT_MISSING)
+    if fingerprint != fingerprint5:
+        return _blocked(FINGERPRINT_CHAIN_MISMATCH)
     canon_ids = {c["id"] for c in (referential.get("canons") or [])
                  if isinstance(c, dict) and isinstance(c.get("id"), str)}
     oa = envelope["operants_operes"]
@@ -283,8 +292,6 @@ def run_coherence_2(envelope: dict) -> dict:
                    for op in (a.get("operants") or []) if isinstance(op, str)}
 
     # 4) S_pre depuis 05 — validé FINI, AVANT la validation 06 (recoupement coherence_S, GC-08-004).
-    ce = envelope["coherence_engine"]
-    coherence5 = ce.get("coherence")
     s_raw = coherence5.get("S") if isinstance(coherence5, dict) else None
     if not (isinstance(s_raw, (int, float)) and not isinstance(s_raw, bool) and math.isfinite(s_raw)):
         return _blocked(ENVELOPE_MALFORMED)
