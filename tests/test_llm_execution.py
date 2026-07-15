@@ -222,3 +222,68 @@ def test_fingerprint_vide_bloque():
     bad = dict(_VALID_REQUEST, referential_fingerprint="")
     v = run_llm_execution(_env(request=bad), lambda r: "x")
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+# --- RÉGRESSIONS audit ChatGPT GC-D1-001 2026-07-15 : PII dans une VALEUR de champ autorisé (P1) ---
+
+def test_pii_dans_object_public_id_bloque_sans_appel():
+    # GC-D1-001 : object_public_id porte la clé dérivée (contient \x1f) au lieu de l'ID opaque.
+    # Passait avant (str), doit être BLOQUÉ maintenant : jamais de PII au client.
+    leaky = dict(_VALID_REQUEST["targets"][0], object_public_id="code\x1fjean-dupont-dossier")
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_pii_dans_canons_bloque_sans_appel():
+    # GC-D1-001 : la même fuite via un autre champ autorisé (canons) doit aussi être bloquée.
+    leaky = dict(_VALID_REQUEST["targets"][0], canons=["C", "code\x1fjean-dupont"])
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_pii_dans_kind_bloque_sans_appel():
+    leaky = dict(_VALID_REQUEST["targets"][0], kind="code\x1fpii")
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    calls = []
+    v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
+
+
+def test_object_public_id_format_non_opaque_bloque():
+    # object_public_id str mais PAS au format OBJ-nnnn (ex. sans \x1f mais dérivé) -> refus.
+    for bad_id in ("code-jean", "OBJ-1", "obj-0001", "OBJ-", "jean-dupont"):
+        leaky = dict(_VALID_REQUEST["targets"][0], object_public_id=bad_id)
+        bad = dict(_VALID_REQUEST, targets=[leaky])
+        v = run_llm_execution(_env(request=bad), lambda r: "x")
+        assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST, bad_id
+
+
+def test_pii_policy_alteree_bloque():
+    bad = dict(_VALID_REQUEST, pii_policy="DISABLED")
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_coherence_s_type_invalide_bloque():
+    bad = dict(_VALID_REQUEST, coherence_S="beaucoup")
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_canons_non_str_list_bloque():
+    leaky = dict(_VALID_REQUEST["targets"][0], canons=[123])
+    bad = dict(_VALID_REQUEST, targets=[leaky])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
+
+
+def test_target_cle_manquante_bloque():
+    # clés EXACTES par cible : une cible amputée d'un champ (ex. operants) est refusée.
+    incomplete = {k: v for k, v in _VALID_REQUEST["targets"][0].items() if k != "operants"}
+    bad = dict(_VALID_REQUEST, targets=[incomplete])
+    v = run_llm_execution(_env(request=bad), lambda r: "x")
+    assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST

@@ -167,11 +167,22 @@ def run_coherence_engine(envelope: dict) -> dict:
     if recomputed_fp != fingerprint:
         return _blocked(FINGERPRINT_MISMATCH)
 
-    canons_selected = cd.get("canons_selected") or []
-    uncanonized = cd.get("uncanonized") or []
-    conflicts = cd.get("conflicts") or []
+    canons_selected = cd.get("canons_selected")
+    uncanonized = cd.get("uncanonized")
+    conflicts = cd.get("conflicts")
     oa = envelope["operants_operes"]
-    analysis = oa.get("analysis") or []
+    analysis = oa.get("analysis")
+
+    # Clé absente/None -> liste vide LÉGITIME. Toute AUTRE valeur non-liste (ex. {}, 0, '', ())
+    # est MALFORMÉE : elle doit être BLOQUÉE, pas normalisée silencieusement en [] par `or []`
+    # (finding GC-D1-002 : un conteneur falsy non-liste ne doit pas contourner le fail-closed).
+    for lst in (canons_selected, uncanonized, conflicts, analysis):
+        if lst is not None and not isinstance(lst, list):
+            return _blocked(MALFORMED)
+    canons_selected = canons_selected or []
+    uncanonized = uncanonized or []
+    conflicts = conflicts or []
+    analysis = analysis or []
 
     # Entrée malformée (object_key/frame non-str -> non hashable) -> fail-closed, jamais un crash.
     if not _keys_all_str(canons_selected, uncanonized, analysis):

@@ -11,6 +11,8 @@ aucun appel ; sur erreur du client, `executed=False` + erreur (jamais un crash).
 """
 from __future__ import annotations
 
+import re
+
 COMPONENT_ID = "07_LLM_EXECUTION"
 VERSION = "1.0.0"
 
@@ -77,23 +79,48 @@ ORDER_KEY = "appel_llm_unique_sur_requete_06"
 # 06_LLM_REQUEST_BUILD. 07 ne transmet au client QUE ce qui correspond à ce contrat ;
 # toute déviation (absente/None, non-dict, hors schéma, PII) => fail-closed AVANT tout appel.
 _EXPECTED_INSTRUCTION_KIND = "STRUCTURED_ANALYSIS_V1"
+_EXPECTED_PII_POLICY = "OPAQUE_PUBLIC_IDS_ONLY_NO_DERIVED_USER_CONTENT"
 _REQUIRED_REQUEST_KEYS = frozenset((
     "instruction_kind", "referential_fingerprint", "coherence_S",
     "frames", "targets", "pii_policy",
 ))
-_ALLOWED_TARGET_KEYS = frozenset((
+_REQUIRED_TARGET_KEYS = frozenset((
     "object_public_id", "kind", "frame", "canons", "operants",
 ))
-# object_key = clé DÉRIVÉE du contenu utilisateur (01) ; ne doit JAMAIS atteindre le LLM (RULE-078).
-_PII_FORBIDDEN_KEYS = frozenset(("object_key", "object_id_map", "normalized", "raw_content"))
+# object_public_id = SEUL identifiant autorisé côté LLM : format opaque déterministe généré
+# par 06 (`OBJ-0001`…). Toute autre forme = valeur potentiellement dérivée du contenu -> refus.
+_OBJ_PUBLIC_ID_RE = re.compile(r"^OBJ-\d{4,}$")
+# Séparateur de la clé DÉRIVÉE object_key (01 : f"{kind}\x1f{normalized}"). N'apparaît JAMAIS dans
+# une valeur STRUCTURELLE légitime (OBJ-nnnn, noms de cadres, ids de canons/opérants) -> sa présence
+# dans une valeur quelconque = tentative de fuite PII (RULE-078).
+_PII_SEP = "\x1f"
+
+
+def _is_str_list(x) -> bool:
+    return isinstance(x, list) and all(isinstance(e, str) for e in x)
+
+
+def _has_pii_separator(value) -> bool:
+    """True si le séparateur d'object_key (\\x1f) apparaît dans une valeur (clé ou contenu)."""
+    if isinstance(value, str):
+        return _PII_SEP in value
+    if isinstance(value, dict):
+        return any(_has_pii_separator(k) or _has_pii_separator(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_has_pii_separator(e) for e in value)
+    return False
 
 
 def _request_well_formed(request) -> bool:
-    """Valide la requête 06 AVANT tout appel client : structure EXACTE + aucune PII.
+    """Valide la requête 06 AVANT tout appel client : schéma EXACT + TYPES + aucune PII.
 
-    Fail-closed (finding audit P1, frontière 06->07) : une enveloppe 06 AUTORISÉE dont la
-    ``llm_request`` est absente/None, non-dict, hors schéma, ou porteuse d'une clé PII
-    (``object_key``) NE DOIT PAS déclencher d'appel LLM.
+    Fail-closed (findings audit P1 : frontière 06->07 + GC-D1-001) : une enveloppe 06 AUTORISÉE
+    n'atteint le client QUE si elle est absolument conforme au contrat 06 —
+    - clés EXACTES à la racine ET dans chaque cible (bloque tout ajout, ex. object_key) ;
+    - TYPES valides pour chaque champ (pas seulement les clés) ;
+    - object_public_id au FORMAT opaque `OBJ-nnnn` (jamais une valeur dérivée du contenu) ;
+    - AUCUNE valeur ne contient le séparateur d'object_key (\\x1f) -> pas de PII dans une valeur.
+    Sinon : pas d'appel LLM.
     """
     if not isinstance(request, dict):
         return False
@@ -101,25 +128,36 @@ def _request_well_formed(request) -> bool:
         return False
     if request.get("instruction_kind") != _EXPECTED_INSTRUCTION_KIND:
         return False
+    if request.get("pii_policy") != _EXPECTED_PII_POLICY:
+        return False
     fingerprint = request.get("referential_fingerprint")
     if not (isinstance(fingerprint, str) and fingerprint):
         return False
-    frames = request.get("frames")
-    if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+    coherence_s = request.get("coherence_S")
+    if not (coherence_s is None or (isinstance(coherence_s, (int, float)) and not isinstance(coherence_s, bool))):
+        return False
+    if not _is_str_list(request.get("frames")):
         return False
     targets = request.get("targets")
     if not isinstance(targets, list):
         return False
     for t in targets:
-        if not isinstance(t, dict):
+        if not isinstance(t, dict) or set(t) != _REQUIRED_TARGET_KEYS:  # clés EXACTES par cible
             return False
-        keys = set(t)
-        if not keys.issubset(_ALLOWED_TARGET_KEYS):  # clé hors schéma (ex. object_key) -> fuite -> refus
+        opid = t.get("object_public_id")
+        if not (isinstance(opid, str) and _OBJ_PUBLIC_ID_RE.match(opid)):
+            return False  # doit être l'ID opaque OBJ-nnnn, jamais une valeur dérivée du contenu
+        kind = t.get("kind")
+        if not (kind is None or isinstance(kind, str)):
             return False
-        if keys & _PII_FORBIDDEN_KEYS:
+        if not isinstance(t.get("frame"), str):
             return False
-        if not isinstance(t.get("object_public_id"), str):
+        if not (_is_str_list(t.get("canons")) and _is_str_list(t.get("operants"))):
             return False
+    # Verrou PII TRANSVERSAL : aucune valeur (même dans un champ au type autorisé) ne doit porter
+    # le séparateur d'object_key -> ferme la fuite via kind/frame/canons/operants/object_public_id.
+    if _has_pii_separator(request):
+        return False
     return True
 
 OUTPUT_KEYS = (

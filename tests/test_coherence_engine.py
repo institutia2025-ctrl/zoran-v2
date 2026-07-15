@@ -303,3 +303,33 @@ def test_conteneur_non_liste_bloque_sans_crash():
     cd = _cd(referential_canons=canons, canons_selected={"object_key": "k", "frame": "CODE"})
     v = run_coherence_engine(_env(cd=cd))
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED
+
+
+# --- RÉGRESSION audit ChatGPT GC-D1-002 2026-07-15 : conteneur falsy non-liste ---
+
+def test_conteneur_falsy_non_liste_bloque_pas_normalise():
+    # GC-D1-002 : {} / 0 / '' / () sont FALSY -> `or []` les masquait en [] (PASS trompeur).
+    # Ils doivent désormais être BLOQUÉS (conteneur non-liste malformé). Injection APRÈS _cd/_oa
+    # pour contourner le `or []` des helpers de test.
+    from zoran_v2.coherence_engine import MALFORMED
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    base = _cd(referential_canons=canons)
+    for bad in ({}, 0, "", ()):
+        for field in ("canons_selected", "uncanonized", "conflicts"):
+            cd = {**base, field: bad}
+            v = run_coherence_engine(_env(cd=cd))
+            assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED, (field, bad)
+        # analysis vit dans l'enveloppe 03 : injection directe
+        e = _env(cd=base)
+        e["operants_operes"] = {**e["operants_operes"], "analysis": bad}
+        v = run_coherence_engine(e)
+        assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED, ("analysis", bad)
+
+
+def test_conteneur_none_ou_absent_reste_legitime():
+    # None / clé absente = liste vide LÉGITIME (ne pas sur-bloquer) -> PASS dégénéré.
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+    base = _cd(referential_canons=canons)
+    cd = {**base, "canons_selected": None, "uncanonized": None, "conflicts": None}
+    v = run_coherence_engine(_env(cd=cd))
+    assert v["status"] == PASS
