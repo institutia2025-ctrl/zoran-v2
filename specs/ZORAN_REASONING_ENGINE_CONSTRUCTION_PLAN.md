@@ -20,6 +20,7 @@ Ce document est la feuille de route canonique de construction du pipeline de rai
 → 10_RESERVED_BY_CANONICAL_CONTRACT
 → 11_TRACE_AND_CLOSE
 → 12_COHERENT_EVOLUTION
+→ EXTERNAL_INDEPENDENT_CERTIFICATION_BY_CLAUDE
 ```
 
 Les noms et contrats détaillés de 09 et 10 restent à matérialiser avant leur construction. Aucun agent ne doit les inventer.
@@ -163,6 +164,46 @@ a_e(x;v_e)=1 implique r_e(x)=0.
 
 ENGINE-12 ne remplace pas les audits externes. Il produit des mesures, guards et propositions d'évolution ; Fred reste l'autorité de GO et les certificateurs externes restent obligatoires.
 
+## Certification indépendante finale par Claude
+
+Après construction, intégration et certification interne de tous les moteurs `00→12`, un paquet autonome, figé et indépendant de GitHub doit être soumis à **Claude Assistant** pour un audit externe final.
+
+### Paquet requis
+
+Le paquet contient au minimum :
+
+- `AGENTS.md` ;
+- plan canonique `00→12` ;
+- contrats de tous les moteurs ;
+- code source exact lié à un SHA figé ;
+- tests et résultats CI ;
+- traces runtime et benchmarks ;
+- manifest et hashes ;
+- preuves brutes ;
+- findings historiques séparés du corpus aveugle.
+
+### Protocole d'indépendance
+
+Claude reçoit d'abord uniquement le paquet aveugle : contrats, code, tests, preuves et SHA. Il rend un premier verdict indépendant avant d'accéder aux verdicts détaillés de ChatGPT, Codex Session A et Codex Session B.
+
+Puis :
+
+```text
+AUDIT_CLAUDE_PRELIMINAIRE
+→ ouverture des verdicts historiques
+→ analyse des divergences
+→ AUDIT_CLAUDE_CONVERGENCE
+```
+
+### Autorité et limites
+
+- Claude ne modifie pas le produit pendant cet audit ;
+- Claude ne remplace pas les certificateurs internes ;
+- un PASS Claude ne compense jamais un FAIL interne ;
+- un FAIL Claude déclenche investigation et reproduction ;
+- aucune certification finale ZORAN V2 sans traitement explicite des divergences ;
+- Fred reste seul autorisé à déclarer la certification finale et à promouvoir la baseline.
+
 ## Gouvernance
 
 - Aucun moteur suivant ne démarre sans contrat matérialisé.
@@ -171,3 +212,4 @@ ENGINE-12 ne remplace pas les audits externes. Il produit des mesures, guards et
 - Une amélioration locale est interdite si `delta_S_global < 0`.
 - Toute erreur confirmée doit enrichir la règle de non-récurrence cohérente.
 - Aucune formule n'est canonique sur la seule base de sa cohérence algébrique.
+- Après certification interne de `00→12`, la certification indépendante finale par Claude est obligatoire avant promotion finale de ZORAN V2.
