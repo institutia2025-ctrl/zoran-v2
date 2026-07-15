@@ -25,14 +25,30 @@ from zoran_v2.coherence_engine import (
 from zoran_v2.canon_determination import _fingerprint as _canon_fp
 
 
+def _ref_from_selected(canons_selected):
+    """Référentiel GELÉ RÉALISTE : contient EXACTEMENT les canons référencés par canons_selected.
+    Un vrai 04 ne SÉLECTIONNE jamais un canon absent de son référentiel gelé (GC-05-P1-007) ; les
+    fixtures doivent donc refléter cette invariance (REX #8 : fixture = payload réellement émis)."""
+    ids = []
+    for c in canons_selected or []:
+        if isinstance(c, dict) and isinstance(c.get("canons"), list):
+            for x in c["canons"]:
+                if isinstance(x, str) and x and x not in ids:
+                    ids.append(x)
+    return [{"id": i, "priority": 10, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
+             "applies_to_kinds": ["code", "text"]} for i in ids]
+
+
 def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint=None,
         referential_canons=None, re=None):
-    rc = referential_canons or []
+    cs = canons_selected or []
+    # Référentiel : explicite si fourni, sinon dérivé des canons sélectionnés (couvre-les tous).
+    rc = referential_canons if referential_canons is not None else _ref_from_selected(cs)
     # Par défaut, fingerprint VALIDE (recalculé) ; passer fingerprint=... pour tester l'invalide.
     fp = fingerprint if fingerprint is not None else _canon_fp(rc)
     return {
         "status": PASS,
-        "canons_selected": canons_selected or [],
+        "canons_selected": cs,
         "uncanonized": uncanonized or [],
         "conflicts": conflicts or [],
         "canon_referential": {"fingerprint": fp, "canons": rc, "priorities": {}},
@@ -449,3 +465,145 @@ def test_05_canons_valide_passe():
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
+
+
+# --- FERMETURE DE CLASSE « preuves de résolution : existence + provenance » (GC-05-P1-006/007 + E11) ---
+# Classe racine : TOUTE preuve consommée par delta_phi/tension/sigma/S/authorize_llm doit être valide,
+# rattachée à une source autoritaire, cohérente avec le référentiel gelé, unique, non contradictoire,
+# fail-closed AVANT calcul. Cf. INVENTAIRE_DATAFLOW_05.
+
+def test_05_operants_champ_malforme_bloque():
+    # GC-05-P1-006 : analysis[*].operants doit être une liste NON VIDE de str UNIQUES non vides.
+    # Sinon la paire est comptée « pourvue d'opérants » (résolue) SANS opérant réel -> faux
+    # delta_phi=1.0 / authorize_llm. Contrat 03 : `analysis` = paires POURVUES d'opérants (les autres
+    # -> `unanalyzed`), donc operants non vide est contractuellement garanti pour toute entrée analysis.
+    from zoran_v2.coherence_engine import OA03
+    for bad in ({}, "", [], [12], ["OP", "OP"], [""], "OP", None):
+        cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+                 referential_canons=_CANONS)
+        oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": bad, "operes": ["k1"]}])
+        v = run_coherence_engine(_env(cd=cd, oa=oa))
+        assert v["status"] == BLOCKED and v["blocked_by"] == OA03, bad
+    # champ `operants` totalement absent -> BLOCKED aussi
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operes": ["k1"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == OA03
+
+
+def test_05_operants_valides_passent():
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP1", "OP2"], "operes": ["k1"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
+
+
+def test_05_canon_hors_referentiel_gele_bloque():
+    # GC-05-P1-007 : un id de canon bien formé mais ABSENT du référentiel gelé (canon inventé) doit
+    # BLOQUER -> sinon la paire compte canonisée/résolue avec un canon inexistant (faux delta_phi/sigma).
+    from zoran_v2.coherence_engine import CD04
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    # référentiel = {id:"C"} uniquement
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["INVENTED"]}],
+             referential_canons=_CANONS)
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+    # partiel : un canon valide + un inventé -> BLOCKED (⊆, pas d'intersection non vide)
+    cd2 = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C", "INVENTED"]}],
+              referential_canons=_CANONS)
+    v2 = run_coherence_engine(_env(cd=cd2, oa=oa))
+    assert v2["status"] == BLOCKED and v2["blocked_by"] == CD04
+
+
+def test_05_canon_du_referentiel_passe():
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == PASS
+
+
+def test_05_conflit_hors_univers_bloque():
+    # E11 provenance : un conflit dont la paire n'appartient PAS à l'univers autoritaire (02) fausse
+    # la tension (conflit inventé/hors-univers) -> BLOCKED.
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             conflicts=[{"object_key": "kX", "frame": "ZZZ", "priority": 5, "canons": ["C", "C2"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_conflit_structure_incomplete_bloque():
+    # E11 structure contractuelle : priority int + canons liste non vide de str uniques.
+    from zoran_v2.coherence_engine import CD04
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    for bad_conf in (
+        {"object_key": "k1", "frame": "CODE", "canons": ["C", "C2"]},                 # priority absente
+        {"object_key": "k1", "frame": "CODE", "priority": True, "canons": ["C", "C2"]},  # priority bool
+        {"object_key": "k1", "frame": "CODE", "priority": "5", "canons": ["C", "C2"]},   # priority non-int
+        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": []},            # canons vide
+        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C"]},    # canons doublon
+        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": [7]},           # canons non-str
+    ):
+        cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+                 conflicts=[bad_conf], referential_canons=_CANONS)
+        v = run_coherence_engine(_env(cd=cd, oa=oa))
+        assert v["status"] == BLOCKED and v["blocked_by"] == CD04, bad_conf
+
+
+def test_05_conflit_duplique_a_l_identique_bloque():
+    # E11 unicité : deux entrées de conflit IDENTIQUES double-comptent la tension -> BLOCKED.
+    # (04 peut émettre plusieurs conflits pour une même paire à des priorités DISTINCTES : légitime.)
+    from zoran_v2.coherence_engine import CD04
+    conf = {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C2"]}
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             conflicts=[dict(conf), dict(conf)], referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_05_conflits_multiples_meme_paire_priorites_distinctes_passent():
+    # Non-régression : 04 émet légitimement plusieurs conflits pour la même paire (priorités != ) ;
+    # l'unicité porte sur l'ENTRÉE complète, PAS sur la paire -> ne doit PAS bloquer.
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C2"]},
+                        {"object_key": "k1", "frame": "CODE", "priority": 3, "canons": ["C", "C3"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == PASS and v["coherence"]["conflicts"] == 2
+
+
+def test_05_garde_enumerante_preuves_consommees():
+    """MATRICE de fermeture de CLASSE : chaque preuve consommée par delta_phi/tension/sigma/S/authorize
+    × chaque invariant (TYPE/NONEMPTY/UNIQUE/PROVENANCE/NONCONTRADICTION) -> BLOCKED, jamais PASS ni
+    crash. Garde le périmètre fermé : réintroduire un trou de la même classe fait ROUGIR ce test.
+    """
+    from zoran_v2.coherence_engine import CD04, OA03, MALFORMED
+    K = {"object_key": "k1", "frame": "CODE"}
+    good_oa = _oa(analysis=[{**K, "operants": ["OP"], "operes": ["k1"]}])
+    good_cs = [{**K, "canons": ["C"]}]
+    # (label, canons_selected, uncanonized, conflicts, oa, attendu)
+    cases = [
+        ("cs.object_key TYPE", [{"object_key": ["x"], "frame": "CODE", "canons": ["C"]}], None, None, good_oa, MALFORMED),
+        ("canons NONEMPTY", [{**K, "canons": []}], None, None, good_oa, CD04),
+        ("canons UNIQUE", [{**K, "canons": ["C", "C"]}], None, None, good_oa, CD04),
+        ("canons TYPE", [{**K, "canons": [7]}], None, None, good_oa, CD04),
+        ("canons PROVENANCE", [{**K, "canons": ["INVENTED"]}], None, None, good_oa, CD04),
+        ("operants NONEMPTY", good_cs, None, None, _oa(analysis=[{**K, "operants": []}]), OA03),
+        ("operants TYPE", good_cs, None, None, _oa(analysis=[{**K, "operants": [7]}]), OA03),
+        ("operants UNIQUE", good_cs, None, None, _oa(analysis=[{**K, "operants": ["OP", "OP"]}]), OA03),
+        ("conflicts PROVENANCE", good_cs, None, [{"object_key": "kZ", "frame": "QQ", "priority": 1, "canons": ["C"]}], good_oa, CD04),
+        ("conflicts UNIQUE", good_cs, None, [{**K, "priority": 1, "canons": ["C"]}, {**K, "priority": 1, "canons": ["C"]}], good_oa, CD04),
+        ("conflicts TYPE(priority)", good_cs, None, [{**K, "priority": "x", "canons": ["C"]}], good_oa, CD04),
+        ("pair NONCONTRADICTION", good_cs, [{**K}], None, good_oa, CD04),
+    ]
+    for label, cs, unc, conf, oa, expected in cases:
+        cd = _cd(canons_selected=cs, uncanonized=unc, conflicts=conf, referential_canons=_CANONS)
+        v = run_coherence_engine(_env(cd=cd, oa=oa))
+        assert v["status"] == BLOCKED and v["blocked_by"] == expected, (label, v.get("blocked_by"))

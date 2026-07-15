@@ -220,6 +220,27 @@ def run_coherence_engine(envelope: dict) -> dict:
                 and len(canons) == len(set(canons))):
             return _blocked(CD04)
 
+    # GC-05-P1-007 (PROVENANCE des canons) : chaque canon SÉLECTIONNÉ doit appartenir au référentiel
+    # GELÉ 04. Un id bien formé mais ABSENT du référentiel (canon INVENTÉ) ferait compter la paire
+    # canonisée/résolue avec un canon inexistant -> faux delta_phi / sigma. `frozen_canons` déjà validé
+    # wellformed (ids str non vides) ; `canons` déjà validé (liste non vide de str uniques) -> accès direct.
+    allowed_canon_ids = {c["id"] for c in frozen_canons}
+    for c in canons_selected:
+        if not set(c["canons"]) <= allowed_canon_ids:
+            return _blocked(CD04)
+
+    # GC-05-P1-006 (EXISTENCE des opérants) : chaque entrée `analysis` (03) doit porter des opérants
+    # RÉELS = liste NON VIDE de str UNIQUES non vides. Contrat 03 : `analysis` = paires POURVUES
+    # d'opérants (les paires sans opérant vont dans `unanalyzed`) -> operants non vide est garanti pour
+    # toute entrée analysis. Sinon la paire est comptée « pourvue d'opérants » (résolue) SANS opérant
+    # valide -> faux delta_phi / authorize_llm. Fail-closed AVANT calcul. (Entrées non-dict déjà rejetées.)
+    for a in analysis:
+        ops = a.get("operants") if isinstance(a, dict) else None
+        if not (isinstance(ops, list) and ops
+                and all(isinstance(x, str) and x for x in ops)
+                and len(ops) == len(set(ops))):
+            return _blocked(OA03)
+
     operant_pairs = {
         _pair(a.get("object_key"), a.get("frame"))
         for a in analysis if isinstance(a, dict)
@@ -254,6 +275,29 @@ def run_coherence_engine(envelope: dict) -> dict:
         return _blocked(FS02)            # object_frame_map (02) malformé
     if universe != authoritative_pairs:
         return _blocked(CD04)            # couverture 04 incomplète/inventée vs univers autoritaire 02
+
+    # E11 (PROVENANCE + STRUCTURE + UNICITÉ des conflits) : chaque conflit (04) alimente la tension
+    # (len(conflicts)). Il doit être STRUCTURELLEMENT complet (priority int ; canons = liste non vide de
+    # str uniques), rattaché à une paire de l'UNIVERS autoritaire (jamais inventé/hors-univers), et non
+    # DUPLIQUÉ à l'identique (sinon tension/S faussés). 04 peut légitimement émettre plusieurs conflits
+    # pour une même paire à des priorités DISTINCTES -> unicité sur l'ENTRÉE complète, PAS sur la paire.
+    # (Éléments non-dict et object_key/frame non-str déjà rejetés par _keys_all_str -> MALFORMED.)
+    seen_conflicts = set()
+    for cf in conflicts:
+        prio = cf.get("priority")
+        ccanons = cf.get("canons")
+        if isinstance(prio, bool) or not isinstance(prio, int):
+            return _blocked(CD04)
+        if not (isinstance(ccanons, list) and ccanons
+                and all(isinstance(x, str) and x for x in ccanons)
+                and len(ccanons) == len(set(ccanons))):
+            return _blocked(CD04)
+        if _pair(cf["object_key"], cf["frame"]) not in universe:
+            return _blocked(CD04)
+        ident = (cf["object_key"], cf["frame"], prio, tuple(ccanons))
+        if ident in seen_conflicts:
+            return _blocked(CD04)
+        seen_conflicts.add(ident)
 
     total_pairs = len(universe)
 
