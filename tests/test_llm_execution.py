@@ -35,7 +35,11 @@ _ENV06 = {
                         "analysis": [{"object_key": "k1", "frame": "CODE", "operants": ["OP_DESCRIBE"]}]},
     "canon_determination": {"status": "PASS",
         "canons_selected": [{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
-        "canon_referential": {"fingerprint": "FP", "canons": [], "priorities": {}}},
+        # Référentiel gelé avec vocabulaire canonique : kind_public='code' doit en provenir.
+        "canon_referential": {"fingerprint": "FP",
+            "canons": [{"id": "K", "applies_to_kinds": ["code"],
+                        "applies_to_frames": ["CODE"], "priority": 1}],
+            "priorities": {}}},
     "coherence_engine": {"status": "PASS", "coherence": {"S": 1.0},
                         "resource": {"authorize_llm": True, "delta_phi_min": 0.5}},
 }
@@ -250,9 +254,9 @@ def test_pii_dans_canons_bloque_sans_appel():
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
 
 
-def test_cle_kind_hors_schema_rejetee_sans_appel():
-    # GC-051-001 : `kind` n'est plus une clé du schéma cible. Une requête portant un `kind`
-    # (quelle que soit sa valeur) est hors schéma -> BLOCKED, aucun appel.
+def test_ancienne_cle_kind_brut_rejetee_sans_appel():
+    # GC-051-001 : le champ brut `kind` de 01 n'est plus au schéma (remplacé par kind_public).
+    # Une requête portant encore un `kind` (clé en trop) est hors schéma -> BLOCKED, aucun appel.
     leaky = dict(_VALID_REQUEST["targets"][0], kind="code\x1fpii")
     bad = dict(_VALID_REQUEST, targets=[leaky])
     calls = []
@@ -296,12 +300,12 @@ def test_target_cle_manquante_bloque():
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
 
 
-# --- RÉGRESSIONS audit ChatGPT GC-5FD-001 / GC-051-001 : PROVENANCE + retrait de `kind` ---
+# --- RÉGRESSIONS audit ChatGPT GC-5FD-001 / GC-051-001 : PROVENANCE + kind_public ⊆ registre 04 ---
 
-def test_kind_pii_sans_separateur_hors_schema_bloque():
-    # GC-051-001 : même une PII 'propre' (kind='Jean Dupont', sans \x1f, type str valide) est refusée
-    # car `kind` n'est plus une clé autorisée -> jamais de texte utilisateur libre au LLM.
-    leaky = dict(_VALID_REQUEST["targets"][0], kind="Jean Dupont")
+def test_kind_public_hors_registre_bloque_sans_appel():
+    # GC-051-001 (test ChatGPT #3) : un kind_public str VALIDE mais ABSENT du vocabulaire canonique
+    # du référentiel gelé (04) -> refusé par la provenance AVANT tout appel (trace à 04, pas à 01).
+    leaky = dict(_VALID_REQUEST["targets"][0], kind_public="Jean Dupont")
     bad = dict(_VALID_REQUEST, targets=[leaky])
     calls = []
     v = run_llm_execution(_env(request=bad), lambda r: calls.append(r))

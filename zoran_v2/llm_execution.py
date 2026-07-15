@@ -86,8 +86,8 @@ _REQUIRED_REQUEST_KEYS = frozenset((
     "frames", "targets", "pii_policy",
 ))
 _REQUIRED_TARGET_KEYS = frozenset((
-    "object_public_id", "frame", "canons", "operants",
-))  # `kind` retiré (GC-051-001) : jamais transmis au LLM
+    "object_public_id", "kind_public", "frame", "canons", "operants",
+))  # GC-051-001 : `kind_public` (vocabulaire canonique 04) remplace le `kind` brut de 01
 # object_public_id = SEUL identifiant autorisé côté LLM : format opaque déterministe généré
 # par 06 (`OBJ-0001`…). Toute autre forme = valeur potentiellement dérivée du contenu -> refus.
 _OBJ_PUBLIC_ID_RE = re.compile(r"^OBJ-\d{4,}$")
@@ -148,6 +148,8 @@ def _request_well_formed(request) -> bool:
         opid = t.get("object_public_id")
         if not (isinstance(opid, str) and _OBJ_PUBLIC_ID_RE.match(opid)):
             return False  # doit être l'ID opaque OBJ-nnnn, jamais une valeur dérivée du contenu
+        if not isinstance(t.get("kind_public"), str):
+            return False
         if not isinstance(t.get("frame"), str):
             return False
         if not (_is_str_list(t.get("canons")) and _is_str_list(t.get("operants"))):
@@ -167,8 +169,8 @@ def _request_traces_to_envelope(request: dict, envelope: dict) -> bool:
 
     CONVERGENT (contrairement aux heuristiques de contenu) : l'ensemble autorisé est FINI et défini
     par l'amont réel, pas deviné. Ce n'est pas un ré-assemblage de 06 mais un contrôle de
-    CONTENANCE (⊆). NB : `kind` n'est plus dans la requête (GC-051-001) -> aucune valeur de texte
-    utilisateur libre n'atteint le LLM.
+    CONTENANCE (⊆). GC-051-001 : `kind_public` doit appartenir au vocabulaire canonique du
+    référentiel gelé (04) -> aucune chaîne brute de 01 (PII possible) ne peut atteindre le LLM.
     """
     cd = envelope.get("canon_determination") or {}
     oa = envelope.get("operants_operes") or {}
@@ -184,9 +186,17 @@ def _request_traces_to_envelope(request: dict, envelope: dict) -> bool:
     referential = cd.get("canon_referential") or {}
     if request.get("referential_fingerprint") != referential.get("fingerprint"):
         return False
+    # kind_public doit appartenir au vocabulaire CANONIQUE du référentiel gelé (04) — trace à 04,
+    # pas seulement à 01 (GC-051-001). Un kind_public hors registre = refus avant appel.
+    canonical_kinds = {
+        k for c in (referential.get("canons") or []) if isinstance(c, dict)
+        for k in (c.get("applies_to_kinds") or []) if isinstance(k, str)
+    }
     if not set(request.get("frames") or []) <= valid_frames:
         return False
     for t in (request.get("targets") or []):
+        if t.get("kind_public") not in canonical_kinds:
+            return False
         if t.get("frame") not in valid_frames:
             return False
         if not set(t.get("canons") or []) <= valid_canons:
