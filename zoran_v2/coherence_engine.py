@@ -210,6 +210,16 @@ def run_coherence_engine(envelope: dict) -> dict:
     if not _keys_all_str(canons_selected, uncanonized, analysis, conflicts):
         return _blocked(MALFORMED)
 
+    # GC-05-P1-005 : chaque cible CANONISÉE (04) doit porter un `canons` = liste NON VIDE de chaînes
+    # UNIQUES non vides. Sinon la paire serait comptée canonisée/résolue SANS canon valide (faux
+    # delta_phi=1.0 / authorize_llm), et un conteneur malformé serait normalisé en silence (`or []`).
+    for c in canons_selected:
+        canons = c.get("canons")
+        if not (isinstance(canons, list) and canons
+                and all(isinstance(x, str) and x for x in canons)
+                and len(canons) == len(set(canons))):
+            return _blocked(CD04)
+
     operant_pairs = {
         _pair(a.get("object_key"), a.get("frame"))
         for a in analysis if isinstance(a, dict)
@@ -259,9 +269,9 @@ def run_coherence_engine(envelope: dict) -> dict:
     # de l'univers (un objet à 0 canon compte comme 0 -> dispersion non sous-estimée).
     all_objects = {ok for (ok, _fr) in universe}
     canons_by_object = {ok: set() for ok in all_objects}
+    # `canons` déjà validé (liste non vide de str uniques, GC-05-P1-005) -> accès direct, sans `or []`.
     for c in canons_selected:
-        if isinstance(c, dict):
-            canons_by_object.setdefault(c.get("object_key"), set()).update(c.get("canons") or [])
+        canons_by_object.setdefault(c["object_key"], set()).update(c["canons"])
     counts = [len(canons_by_object[ok]) for ok in sorted(all_objects)]
     if len(counts) >= 2 and statistics.mean(counts) > 0:
         sigma = round(statistics.pstdev(counts) / statistics.mean(counts), 6)

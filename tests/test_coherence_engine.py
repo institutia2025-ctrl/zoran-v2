@@ -427,3 +427,25 @@ def test_04_doublon_dans_uncanonized_bloque():
              referential_canons=_CANONS)
     v = run_coherence_engine(_env(cd=cd))
     assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+# --- RÉGRESSION ChatGPT GC-05-P1-005 : validation stricte du champ `canons` de 04 ---
+
+def test_05_canons_champ_malforme_bloque():
+    from zoran_v2.coherence_engine import CD04
+    # canons doit etre une liste NON VIDE de str UNIQUES non vides ; sinon la paire serait comptee
+    # canonisee/resolue SANS canon valide -> faux delta_phi=1.0 / authorize_llm (normalisation `or []`).
+    for bad in ({}, "", [], [12, None], ["C", "C"], ["C", ""], "C"):
+        cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": bad}],
+                 referential_canons=_CANONS)
+        oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+        v = run_coherence_engine(_env(cd=cd, oa=oa))
+        assert v["status"] == BLOCKED and v["blocked_by"] == CD04, bad
+
+
+def test_05_canons_valide_passe():
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
