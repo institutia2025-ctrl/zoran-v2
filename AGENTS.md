@@ -57,6 +57,14 @@ Tout audit doit comporter :
 - Toute contradiction impose reconstruction ou `FIX_REQUIRED`, jamais une rationalisation.
 - Aucun ajout de gouvernance abstraite sans incident réel démontré pendant la construction des moteurs.
 
+## Accès et capacités requis des IA
+
+Toute IA qui ne dispose pas d’un accès, connecteur, outil, fichier ou permission nécessaire pour exécuter une action ou un audit requis doit le signaler immédiatement à Fred et lui demander explicitement de l’activer ou de l’autoriser.
+
+- Ne jamais attendre passivement une preuve ou un verdict qu’elle peut obtenir avec une capacité non activée.
+- Ne jamais conclure, certifier, ni contourner l’absence de cette capacité.
+- Après activation, reprendre l’observation directe avant toute conclusion.
+
 ## Portée
 
 Ce fichier s’applique à tous les sous-répertoires du dépôt et à tous les agents humains ou IA intervenant sur ZORAN V2.
