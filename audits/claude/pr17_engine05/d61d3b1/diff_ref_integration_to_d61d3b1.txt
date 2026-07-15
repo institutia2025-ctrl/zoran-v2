@@ -1,0 +1,1134 @@
+diff --git a/tests/test_canon_determination.py b/tests/test_canon_determination.py
+index ae7e9eb..c6e3260 100644
+--- a/tests/test_canon_determination.py
++++ b/tests/test_canon_determination.py
+@@ -20,6 +20,7 @@ from zoran_v2.canon_determination import (
+     PROVENANCE_DECL,
+     VERSION,
+     _fingerprint,
++    _normalize_registry,
+     run_canon_determination,
+ )
+ 
+@@ -76,6 +77,17 @@ def test_determination_nominale_priorite_desc():
+     assert v["uncanonized"] == []
+     assert _ids(v) == ["CANON_CONSTRAINT", "CANON_STRUCTURE"]
+     assert v["canon_referential"]["priorities"] == {"CANON_CONSTRAINT": 40, "CANON_STRUCTURE": 30}
++    assert v["full_registry_commitment"] == {
++        "full_registry_fingerprint": _fingerprint(_normalize_registry(REG)),
++        "registry_version": "1.0.0",
++        "registry_source": "CANONS.yaml",
++        "normalization": {
++            "id": "zoran_v2.canon_determination._normalize_registry",
++            "version": "1.0.0",
++        },
++    }
++    assert len(v["canon_referential"]["canons"]) == 2
++    assert len(REG) == 3  # sous-ensemble applique et engagement complet restent distincts
+     assert v["component"] == COMPONENT_ID and v["version"] == VERSION
+ 
+ 
+diff --git a/tests/test_coherence_engine.py b/tests/test_coherence_engine.py
+index d965a64..61751c4 100644
+--- a/tests/test_coherence_engine.py
++++ b/tests/test_coherence_engine.py
+@@ -20,22 +20,47 @@ from zoran_v2.coherence_engine import (
+     PASS,
+     PROVENANCE_DECL,
+     VERSION,
+-    run_coherence_engine,
++    run_coherence_engine as _run_coherence_engine,
+ )
+-from zoran_v2.canon_determination import _fingerprint as _canon_fp
++from zoran_v2.canon_determination import (
++    _fingerprint as _canon_fp,
++    _full_registry_commitment,
++    _normalize_registry,
++)
++
++
++def _ref_from_selected(canons_selected):
++    """Référentiel GELÉ RÉALISTE : contient EXACTEMENT les canons référencés par canons_selected.
++    Un vrai 04 ne SÉLECTIONNE jamais un canon absent de son référentiel gelé (GC-05-P1-007) ; les
++    fixtures doivent donc refléter cette invariance (REX #8 : fixture = payload réellement émis)."""
++    ids = []
++    for c in canons_selected or []:
++        if isinstance(c, dict) and isinstance(c.get("canons"), list):
++            for x in c["canons"]:
++                if isinstance(x, str) and x and x not in ids:
++                    ids.append(x)
++    # Priorités DISTINCTES par id : par défaut aucune paire n'a 2 canons de même priorité -> 04 ne
++    # produirait aucun conflit -> les fixtures sans conflit restent réalistes (E11 reconstruit 04).
++    return [{"id": i, "priority": 10 + idx, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
++             "applies_to_kinds": ["code", "text"]} for idx, i in enumerate(ids)]
+ 
+ 
+ def _cd(canons_selected=None, uncanonized=None, conflicts=None, fingerprint=None,
+-        referential_canons=None, re=None):
+-    rc = referential_canons or []
++        referential_canons=None, re=None, full_registry=None, commitment=None):
++    cs = canons_selected or []
++    # Référentiel : explicite si fourni, sinon dérivé des canons sélectionnés (couvre-les tous).
++    rc = referential_canons if referential_canons is not None else _ref_from_selected(cs)
+     # Par défaut, fingerprint VALIDE (recalculé) ; passer fingerprint=... pour tester l'invalide.
+     fp = fingerprint if fingerprint is not None else _canon_fp(rc)
++    committed_registry = full_registry if full_registry is not None else rc
++    normalized_committed = _normalize_registry(committed_registry) if isinstance(committed_registry, list) else []
+     return {
+         "status": PASS,
+-        "canons_selected": canons_selected or [],
++        "canons_selected": cs,
+         "uncanonized": uncanonized or [],
+         "conflicts": conflicts or [],
+         "canon_referential": {"fingerprint": fp, "canons": rc, "priorities": {}},
++        "full_registry_commitment": commitment or _full_registry_commitment(normalized_committed),
+         "resource_estimate": re or {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
+     }
+ 
+@@ -44,20 +69,44 @@ def _oa(analysis=None):
+     return {"status": PASS, "analysis": analysis or [], "unanalyzed": []}
+ 
+ 
+-def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st="PASS"):
++def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st="PASS", ofm=None,
++         objects=None):
+     cdn = cd if cd is not None else _cd()
+     oan = oa if oa is not None else _oa()
+     cdn = {**cdn, "status": cd_st}
+     oan = {**oan, "status": oa_st}
++    if ofm is None:
++        # object_frame_map (02) autoritaire : couvre EXACTEMENT les couples de 04 (canonized ∪ uncanon).
++        # 05 recoupe desormais l'univers de 04 contre 02 (CSB-PROV-P1-004). Construction robuste
++        # (entrees malformees ignorees ici -> ces cas sont bloques par 05 AVANT le contrôle couverture).
++        _pairs = {}
++        for c in list(cdn.get("canons_selected") or []) + list(cdn.get("uncanonized") or []):
++            if isinstance(c, dict) and isinstance(c.get("object_key"), str) and isinstance(c.get("frame"), str):
++                _pairs.setdefault(c["object_key"], set()).add(c["frame"])
++        ofm = [{"object_key": k, "frames": sorted(v)} for k, v in sorted(_pairs.items())]
++    if objects is None:
++        objects = [{"object_key": entry["object_key"], "kind": "code"}
++                   for entry in ofm if isinstance(entry, dict)
++                   and isinstance(entry.get("object_key"), str)]
+     return {
+         "runtime_check": {"status": rc},
+-        "object_discovery": {"status": od},
+-        "frame_selection": {"status": fs},
++        "object_discovery": {"status": od, "objects": objects},
++        "frame_selection": {"status": fs, "object_frame_map": ofm},
+         "operants_operes": oan,
+         "canon_determination": cdn,
+     }
+ 
+ 
++def run_coherence_engine(envelope, full_registry=None):
++    """Legacy-fixture adapter: every production call still uses the new explicit registry argument."""
++    if full_registry is None:
++        cd = envelope.get("canon_determination", {}) if isinstance(envelope, dict) else {}
++        referential = cd.get("canon_referential", {}) if isinstance(cd, dict) else {}
++        raw = referential.get("canons", []) if isinstance(referential, dict) else []
++        full_registry = _normalize_registry(raw) if isinstance(raw, list) else []
++    return _run_coherence_engine(envelope, full_registry)
++
++
+ def test_output_schema_exact_pass_et_blocked():
+     assert tuple(run_coherence_engine(_env()).keys()) == OUTPUT_KEYS
+     assert tuple(run_coherence_engine(_env(rc="FAIL")).keys()) == OUTPUT_KEYS
+@@ -104,7 +153,10 @@ def test_delta_phi_partiel_et_veto_ressource():
+         uncanonized=[{"object_key": "k2", "frame": "TEXT"}],
+     )
+     oa = _oa(analysis=[])  # aucun opérant
+-    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    v = run_coherence_engine(_env(
++        cd=cd, oa=oa,
++        objects=[{"object_key": "k1", "kind": "code"}, {"object_key": "k2", "kind": "other"}],
++    ))
+     c = v["coherence"]
+     assert c["total_pairs"] == 2 and c["resolved_pairs"] == 0
+     assert c["delta_phi"] == 0.0
+@@ -127,9 +179,13 @@ def test_seuil_veto_exact():
+ 
+ 
+ def test_tension_compte_les_conflits():
++    # A et B MÊME priorité -> 04 produit exactement un conflit (k1,CODE,10,[A,B]) : E11 reconstruit.
++    ref = [{"id": "A", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
++           {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+     cd = _cd(
+         canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+-        conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["A", "B"]}],
++        conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
++        referential_canons=ref,
+     )
+     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP_DESCRIBE"], "operes": ["k1"]}])
+     v = run_coherence_engine(_env(cd=cd, oa=oa))
+@@ -140,15 +196,24 @@ def test_tension_compte_les_conflits():
+ 
+ def test_sigma_dispersion_entre_objets():
+     # k1 a 2 canons, k2 a 0 canon distinct dans canons_selected (non listé) -> mais σ sur objets listés
++    canons = [
++        {"id": "A", "priority": 10, "applies_to_frames": ["CODE"],
++         "applies_to_kinds": ["code", "text"]},
++        {"id": "B", "priority": 11, "applies_to_frames": ["CODE"],
++         "applies_to_kinds": ["code"]},
++    ]
+     cd = _cd(canons_selected=[
+-        {"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]},
++        {"object_key": "k1", "frame": "CODE", "canons": ["B", "A"]},
+         {"object_key": "k2", "frame": "CODE", "canons": ["A"]},
+-    ])
++    ], referential_canons=canons)
+     oa = _oa(analysis=[
+         {"object_key": "k1", "frame": "CODE", "operants": ["OP_X"], "operes": ["k1"]},
+         {"object_key": "k2", "frame": "CODE", "operants": ["OP_X"], "operes": ["k2"]},
+     ])
+-    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    v = run_coherence_engine(_env(
++        cd=cd, oa=oa,
++        objects=[{"object_key": "k1", "kind": "code"}, {"object_key": "k2", "kind": "text"}],
++    ))
+     # counts = [2,1] -> mean 1.5, pstdev 0.5 -> CV = 0.333333
+     assert v["coherence"]["sigma"] == round(0.5 / 1.5, 6)
+ 
+@@ -260,7 +325,10 @@ def test_sigma_inclut_objets_zero_canon():
+         uncanonized=[{"object_key": "k2", "frame": "TEXT"}],
+     )
+     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
+-    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    v = run_coherence_engine(_env(
++        cd=cd, oa=oa,
++        objects=[{"object_key": "k1", "kind": "code"}, {"object_key": "k2", "kind": "other"}],
++    ))
+     # counts = [1, 0] (k1=1 canon, k2=0) -> mean .5, pstdev .5 -> CV = 1.0 (avant fix : 0.0)
+     assert v["coherence"]["sigma"] == 1.0
+ 
+@@ -329,9 +397,9 @@ def test_conteneur_falsy_non_liste_bloque_pas_normalise():
+ def test_conteneur_none_ou_absent_reste_legitime():
+     # None / clé absente = liste vide LÉGITIME (ne pas sur-bloquer) -> PASS dégénéré.
+     canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+-    base = _cd(referential_canons=canons)
++    base = _cd(referential_canons=[], full_registry=canons)
+     cd = {**base, "canons_selected": None, "uncanonized": None, "conflicts": None}
+-    v = run_coherence_engine(_env(cd=cd))
++    v = run_coherence_engine(_env(cd=cd), canons)
+     assert v["status"] == PASS
+ 
+ 
+@@ -345,3 +413,518 @@ def test_conflicts_element_non_dict_bloque():
+     oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}])
+     v = run_coherence_engine(_env(cd=cd, oa=oa))
+     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED
++
++
++# --- RÉGRESSION Codex Session B CSB-PROV-P1-004 : couverture 04 vs univers autoritaire 02 ---
++
++_CANONS = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
++# Référentiel multi-canons (conflits = >=2 canons du référentiel gelé, GC-05-P2).
++_CANONS_M = [{"id": i, "priority": 10, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
++              "applies_to_kinds": ["code", "text"]} for i in ("C", "C2", "C3")]
++
++
++def _refp(*id_prio):
++    """Référentiel gelé à priorités EXPLICITES : _refp(('A',10),('B',10)) -> A et B priorité 10."""
++    return [{"id": i, "priority": p, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
++             "applies_to_kinds": ["code", "text"]} for i, p in id_prio]
++
++
++def test_04_omet_une_paire_de_02_bloque():
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    # 02 contient (k1,CODE) ET (k2,TEXT) ; 04 (declare PASS) OMET (k2,TEXT) -> couverture trouee.
++    ofm = [{"object_key": "k1", "frames": ["CODE"]}, {"object_key": "k2", "frames": ["TEXT"]}]
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa, ofm=ofm))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_04_invente_une_paire_absente_de_02_bloque():
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]},
++                              {"object_key": "kX", "frame": "ZZZ", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    ofm = [{"object_key": "k1", "frames": ["CODE"]}]  # (kX,ZZZ) inventee par 04, absente de 02
++    v = run_coherence_engine(_env(cd=cd, ofm=ofm))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_02_object_frame_map_malforme_bloque():
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    for bad in ([{"object_key": [], "frames": ["CODE"]}],
++                [{"object_key": "k1", "frames": "CODE"}], "x", [42], {}):
++        v = run_coherence_engine(_env(cd=cd, ofm=bad))
++        assert v["status"] == BLOCKED and v["blocked_by"] == "02_ANALYSIS_FRAME_SELECTION", bad
++
++
++def test_04_couvre_exactement_02_passe():
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))  # ofm auto = exactement (k1,CODE)
++    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
++
++
++def test_04_meme_paire_canonisee_ET_uncanonized_bloque():
++    from zoran_v2.coherence_engine import CD04
++    # contradiction interne 04 : (k1,CODE) a la fois canonisee ET non-canonisee -> BLOCKED (le set
++    # masquait la contradiction ; delta_phi=1.0/authorize_llm=True devenaient possibles a tort).
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             uncanonized=[{"object_key": "k1", "frame": "CODE"}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_04_doublon_dans_canons_selected_bloque():
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]},
++                              {"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    v = run_coherence_engine(_env(cd=cd))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_04_doublon_dans_uncanonized_bloque():
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(uncanonized=[{"object_key": "k2", "frame": "TEXT"},
++                          {"object_key": "k2", "frame": "TEXT"}],
++             referential_canons=_CANONS)
++    v = run_coherence_engine(_env(cd=cd))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++# --- RÉGRESSION ChatGPT GC-05-P1-005 : validation stricte du champ `canons` de 04 ---
++
++def test_05_canons_champ_malforme_bloque():
++    from zoran_v2.coherence_engine import CD04
++    # canons doit etre une liste NON VIDE de str UNIQUES non vides ; sinon la paire serait comptee
++    # canonisee/resolue SANS canon valide -> faux delta_phi=1.0 / authorize_llm (normalisation `or []`).
++    for bad in ({}, "", [], [12, None], ["C", "C"], ["C", ""], "C"):
++        cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": bad}],
++                 referential_canons=_CANONS)
++        oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++        v = run_coherence_engine(_env(cd=cd, oa=oa))
++        assert v["status"] == BLOCKED and v["blocked_by"] == CD04, bad
++
++
++def test_05_canons_valide_passe():
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
++
++
++# --- FERMETURE DE CLASSE « preuves de résolution : existence + provenance » (GC-05-P1-006/007 + E11) ---
++# Classe racine : TOUTE preuve consommée par delta_phi/tension/sigma/S/authorize_llm doit être valide,
++# rattachée à une source autoritaire, cohérente avec le référentiel gelé, unique, non contradictoire,
++# fail-closed AVANT calcul. Cf. INVENTAIRE_DATAFLOW_05.
++
++def test_05_operants_champ_malforme_bloque():
++    # GC-05-P1-006 : analysis[*].operants doit être une liste NON VIDE de str UNIQUES non vides.
++    # Sinon la paire est comptée « pourvue d'opérants » (résolue) SANS opérant réel -> faux
++    # delta_phi=1.0 / authorize_llm. Contrat 03 : `analysis` = paires POURVUES d'opérants (les autres
++    # -> `unanalyzed`), donc operants non vide est contractuellement garanti pour toute entrée analysis.
++    from zoran_v2.coherence_engine import OA03
++    for bad in ({}, "", [], [12], ["OP", "OP"], [""], "OP", None):
++        cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++                 referential_canons=_CANONS)
++        oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": bad, "operes": ["k1"]}])
++        v = run_coherence_engine(_env(cd=cd, oa=oa))
++        assert v["status"] == BLOCKED and v["blocked_by"] == OA03, bad
++    # champ `operants` totalement absent -> BLOCKED aussi
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operes": ["k1"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == BLOCKED and v["blocked_by"] == OA03
++
++
++def test_05_operants_valides_passent():
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP1", "OP2"], "operes": ["k1"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
++
++
++def test_05_canon_hors_referentiel_gele_bloque():
++    # GC-05-P1-007 : un id de canon bien formé mais ABSENT du référentiel gelé (canon inventé) doit
++    # BLOQUER -> sinon la paire compte canonisée/résolue avec un canon inexistant (faux delta_phi/sigma).
++    from zoran_v2.coherence_engine import CD04
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    # référentiel = {id:"C"} uniquement
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["INVENTED"]}],
++             referential_canons=_CANONS)
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++    # partiel : un canon valide + un inventé -> BLOCKED (⊆, pas d'intersection non vide)
++    cd2 = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C", "INVENTED"]}],
++              referential_canons=_CANONS)
++    v2 = run_coherence_engine(_env(cd=cd2, oa=oa))
++    assert v2["status"] == BLOCKED and v2["blocked_by"] == CD04
++
++
++def test_05_canon_du_referentiel_passe():
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == PASS
++
++
++def test_05_canon_gele_inapplicable_au_frame_et_kind_bloque():
++    """GC-05-P1-CANON-APPLICABILITY-PROVENANCE : reproduit le contre-exemple exact."""
++    from zoran_v2.coherence_engine import CD04
++
++    c_text = [{
++        "id": "C_TEXT",
++        "priority": 10,
++        "applies_to_frames": ["TEXT"],
++        "applies_to_kinds": ["text"],
++    }]
++    cd = _cd(
++        canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C_TEXT"]}],
++        referential_canons=c_text,
++    )
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    envelope = _env(cd=cd, oa=oa)
++    envelope["object_discovery"]["objects"] = [{"object_key": "k1", "kind": "code"}]
++
++    verdict = run_coherence_engine(envelope)
++
++    assert verdict["status"] == BLOCKED
++    assert verdict["blocked_by"] == CD04
++
++
++def test_05_registre_complet_ab_payload_04_ampute_a_bloque():
++    """GC-05-P1-CANON-REGISTRY-COMPLETENESS, contre-exemple rouge exact."""
++    from zoran_v2.coherence_engine import CD04
++
++    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"],
++         "applies_to_kinds": ["code"]}
++    b = {"id": "B", "priority": 10, "applies_to_frames": ["CODE"],
++         "applies_to_kinds": ["code"]}
++    full_registry = [a, b]
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
++             referential_canons=[a])
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++
++    verdict = _run_coherence_engine(_env(
++        cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}],
++    ), full_registry)
++
++    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
++
++
++def test_05_engagement_complet_ab_selection_04_amputee_a_bloque():
++    from zoran_v2.coherence_engine import CD04
++    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    b = {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    registry = [a, b]
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
++             referential_canons=[a], full_registry=registry)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    verdict = _run_coherence_engine(
++        _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
++    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
++
++
++def test_05_registre_complet_absent_bloque_sans_fallback():
++    from zoran_v2.coherence_engine import CD04
++    verdict = _run_coherence_engine(_env())
++    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
++
++
++def test_05_engagement_fingerprint_version_source_divergents_bloquent():
++    from zoran_v2.coherence_engine import CD04
++    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    registry = [a]
++    base = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
++               referential_canons=[a], full_registry=registry)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    for field, value in (("full_registry_fingerprint", "fraud"),
++                         ("registry_version", "9.9.9"),
++                         ("registry_source", "OTHER.yaml")):
++        cd = copy.deepcopy(base)
++        cd["full_registry_commitment"][field] = value
++        verdict = _run_coherence_engine(
++            _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
++        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04, field
++    for field, value in (("id", "other.normalizer"), ("version", "9.9.9")):
++        cd = copy.deepcopy(base)
++        cd["full_registry_commitment"]["normalization"][field] = value
++        verdict = _run_coherence_engine(
++            _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
++        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04, field
++
++
++def test_05_registre_complet_malforme_ou_doublonne_bloque():
++    from zoran_v2.coherence_engine import CD04
++    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
++             referential_canons=[a], full_registry=[a])
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    envelope = _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}])
++    for bad in (None, {}, [a, copy.deepcopy(a)], [{"id": "A"}],
++                [{**a, "applies_to_frames": ["CODE", "CODE"]}]):
++        verdict = _run_coherence_engine(envelope, bad)
++        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04, bad
++
++
++def test_05_registre_complet_valide_sous_ensemble_applicable_a_seul_passe():
++    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    b = {"id": "B", "priority": 10, "applies_to_frames": ["TEXT"], "applies_to_kinds": ["text"]}
++    registry = [a, b]
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A"]}],
++             referential_canons=[a], full_registry=registry)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    verdict = _run_coherence_engine(
++        _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
++    assert verdict["status"] == PASS
++
++
++def test_05_registre_complet_valide_couverture_ab_passe():
++    a = {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    b = {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}
++    registry = [a, b]
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             referential_canons=registry, full_registry=registry)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    verdict = _run_coherence_engine(
++        _env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]), registry)
++    assert verdict["status"] == PASS
++
++
++def test_05_canons_applicables_exacts_passent():
++    canons = [
++        {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
++        {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
++    ]
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             referential_canons=canons)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    verdict = run_coherence_engine(_env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]))
++    assert verdict["status"] == PASS
++
++
++def test_05_aucun_canon_applicable_exige_uncanonized_exact():
++    c_text = [{"id": "C_TEXT", "priority": 10, "applies_to_frames": ["TEXT"],
++               "applies_to_kinds": ["text"]}]
++    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}], referential_canons=[],
++             full_registry=c_text)
++    verdict = run_coherence_engine(
++        _env(cd=cd, objects=[{"object_key": "k1", "kind": "code"}]), c_text)
++    assert verdict["status"] == PASS
++
++
++def test_05_canon_applicable_omis_bloque():
++    from zoran_v2.coherence_engine import CD04
++    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"],
++               "applies_to_kinds": ["code"]}]
++    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}], referential_canons=canons)
++    verdict = run_coherence_engine(_env(cd=cd, objects=[{"object_key": "k1", "kind": "code"}]))
++    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
++
++
++def test_05_object_discovery_objects_malforme_bloque():
++    from zoran_v2.coherence_engine import OD01
++    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}])
++    bad_payloads = ({}, [{"object_key": "k1"}],
++                    [{"object_key": "k1", "kind": "code"},
++                     {"object_key": "k1", "kind": "text"}])
++    for objects in bad_payloads:
++        verdict = run_coherence_engine(_env(cd=cd, objects=objects))
++        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == OD01
++
++
++def test_05_CSB_canon_id_provenance_contre_exemple_verbatim():
++    # CSB-05-P1-CANON-ID-PROVENANCE (Session B reproduit par Codex Session A) — contre-exemple VERBATIM
++    # (REX #9). référentiel gelé id=C ; canons_selected=["INVENTED_NOT_FROZEN"] -> DOIT BLOQUER en 05
++    # (blocked_by=04_CANON_DETERMINATION) AVANT S/resource, sinon le canon inventé se propage 06->07->client.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["INVENTED_NOT_FROZEN"]}],
++             referential_canons=_CANONS)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++    # propagation coupée à la frontière 05 : pas de S ni d'autorisation ressource pour 06/07.
++    assert v["coherence"] is None and v["resource"] is None
++
++
++def test_05_conflit_hors_univers_bloque():
++    # E11 provenance : un conflit dont la paire n'appartient PAS à l'univers autoritaire (02) fausse
++    # la tension (conflit inventé/hors-univers) -> BLOCKED.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             conflicts=[{"object_key": "kX", "frame": "ZZZ", "priority": 5, "canons": ["C", "C2"]}],
++             referential_canons=_CANONS_M)
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_conflit_structure_incomplete_bloque():
++    # E11 structure contractuelle : priority int + canons liste de >=2 str uniques (contrat 04).
++    from zoran_v2.coherence_engine import CD04
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    for bad_conf in (
++        {"object_key": "k1", "frame": "CODE", "canons": ["C", "C2"]},                 # priority absente
++        {"object_key": "k1", "frame": "CODE", "priority": True, "canons": ["C", "C2"]},  # priority bool
++        {"object_key": "k1", "frame": "CODE", "priority": "5", "canons": ["C", "C2"]},   # priority non-int
++        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": []},            # canons vide
++        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C"]},         # <2 canons (GC-05-P2)
++        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C"]},    # canons doublon
++        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": [7, 8]},        # canons non-str
++    ):
++        cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++                 conflicts=[bad_conf], referential_canons=_CANONS_M)
++        v = run_coherence_engine(_env(cd=cd, oa=oa))
++        assert v["status"] == BLOCKED and v["blocked_by"] == CD04, bad_conf
++
++
++def test_05_conflit_canon_hors_referentiel_gele_bloque():
++    # GC-05-P2 (provenance interne des conflits) : un id de canon d'un conflit ABSENT du référentiel
++    # gelé (canon inventé dans le conflit) fausserait la tension -> BLOCKED, même si la paire est valide.
++    from zoran_v2.coherence_engine import CD04
++    # Verbatim ChatGPT : référentiel gelé = {C} seul ; conflit canons=["C","INVENTED"] -> BLOCKED.
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "INVENTED"]}],
++             referential_canons=_CANONS)  # référentiel = {C} uniquement
++    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++    v = run_coherence_engine(_env(cd=cd, oa=oa))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++# --- GC-05-P1-E11-CONFLICT-EXACTNESS : 05 RECONSTRUIT l'ensemble autoritaire de conflits de 04 ---
++# (canons_selected[*].canons == canons applicables ; groupe de >=2 canons de MÊME priorité gelée,
++#  ids triés, UNE entrée par (paire, priorité)) et exige l'égalité EXACTE avec les conflits reçus.
++
++def _oa_k1():
++    return _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
++
++
++def test_05_conflit_autoritaire_exact_passe():
++    # A,B même priorité -> 04 produit exactement (k1,CODE,10,[A,B]) trié. Reçu identique -> PASS.
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
++             referential_canons=_refp(("A", 10), ("B", 10)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == PASS and v["coherence"]["conflicts"] == 1
++
++
++def test_05_deux_conflits_meme_paire_priorites_reellement_distinctes_passent():
++    # 2 groupes de priorités DISTINCTES sur la même paire -> 04 produit 2 entrées -> PASS.
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B", "C", "D"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]},
++                        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "D"]}],
++             referential_canons=_refp(("A", 10), ("B", 10), ("C", 5), ("D", 5)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == PASS and v["coherence"]["conflicts"] == 2
++
++
++def test_05_conflit_priorite_mensongere_bloque():
++    # priority=99 impossible : A(10) et B(5) n'ont pas de priorité commune -> 04 ne produit AUCUN conflit.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 99, "canons": ["A", "B"]}],
++             referential_canons=_refp(("A", 10), ("B", 5)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_conflit_canons_de_priorites_differentes_dans_une_entree_bloque():
++    # A(10) et B(5) réunis dans un conflit priority=10 -> 04 ne peut pas grouper des priorités != .
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
++             referential_canons=_refp(("A", 10), ("B", 5)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_conflit_reordonne_et_duplique_bloque():
++    # Deux entrées = même conflit avec IDs inversés : 04 trie et n'émet qu'une entrée -> BLOCKED.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]},
++                        {"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["B", "A"]}],
++             referential_canons=_refp(("A", 10), ("B", 10)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_deux_entrees_meme_paire_meme_priorite_bloque():
++    # A,B,C même priorité -> 04 produit UNE entrée (A,B,C). Deux sous-entrées -> BLOCKED.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B", "C"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]},
++                        {"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "C"]}],
++             referential_canons=_refp(("A", 10), ("B", 10), ("C", 10)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_conflit_groupe_partiel_bloque():
++    # groupe autoritaire (A,B,C) réduit à (A,B) -> BLOCKED.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B", "C"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["A", "B"]}],
++             referential_canons=_refp(("A", 10), ("B", 10), ("C", 10)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_conflit_autoritaire_omis_bloque():
++    # 04 aurait produit (A,B) mais conflicts=[] -> conflit OMIS -> BLOCKED (tension sous-estimée).
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             conflicts=[], referential_canons=_refp(("A", 10), ("B", 10)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_conflit_ordre_non_canonique_bloque():
++    # conflit unique mais ids NON triés (["B","A"]) -> 04 émet toujours trié -> BLOCKED.
++    from zoran_v2.coherence_engine import CD04
++    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
++             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 10, "canons": ["B", "A"]}],
++             referential_canons=_refp(("A", 10), ("B", 10)))
++    v = run_coherence_engine(_env(cd=cd, oa=_oa_k1()))
++    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
++
++
++def test_05_garde_enumerante_preuves_consommees():
++    """MATRICE de fermeture de CLASSE : chaque preuve consommée par delta_phi/tension/sigma/S/authorize
++    × chaque invariant (TYPE/NONEMPTY/UNIQUE/PROVENANCE/NONCONTRADICTION) -> BLOCKED, jamais PASS ni
++    crash. Garde le périmètre fermé : réintroduire un trou de la même classe fait ROUGIR ce test.
++    """
++    from zoran_v2.coherence_engine import CD04, OA03, MALFORMED
++    K = {"object_key": "k1", "frame": "CODE"}
++    good_oa = _oa(analysis=[{**K, "operants": ["OP"], "operes": ["k1"]}])
++    good_cs = [{**K, "canons": ["C"]}]
++    # (label, canons_selected, uncanonized, conflicts, oa, attendu)
++    cases = [
++        ("cs.object_key TYPE", [{"object_key": ["x"], "frame": "CODE", "canons": ["C"]}], None, None, good_oa, MALFORMED),
++        ("canons NONEMPTY", [{**K, "canons": []}], None, None, good_oa, CD04),
++        ("canons UNIQUE", [{**K, "canons": ["C", "C"]}], None, None, good_oa, CD04),
++        ("canons TYPE", [{**K, "canons": [7]}], None, None, good_oa, CD04),
++        ("canons PROVENANCE", [{**K, "canons": ["INVENTED"]}], None, None, good_oa, CD04),
++        ("operants NONEMPTY", good_cs, None, None, _oa(analysis=[{**K, "operants": []}]), OA03),
++        ("operants TYPE", good_cs, None, None, _oa(analysis=[{**K, "operants": [7]}]), OA03),
++        ("operants UNIQUE", good_cs, None, None, _oa(analysis=[{**K, "operants": ["OP", "OP"]}]), OA03),
++        ("conflicts PROVENANCE(pair)", good_cs, None, [{"object_key": "kZ", "frame": "QQ", "priority": 1, "canons": ["C", "C2"]}], good_oa, CD04),
++        ("conflicts PROVENANCE(canon)", good_cs, None, [{**K, "priority": 1, "canons": ["C", "INVENTED"]}], good_oa, CD04),
++        ("conflicts LEN>=2", good_cs, None, [{**K, "priority": 1, "canons": ["C"]}], good_oa, CD04),
++        ("conflicts UNIQUE", good_cs, None, [{**K, "priority": 1, "canons": ["C", "C2"]}, {**K, "priority": 1, "canons": ["C", "C2"]}], good_oa, CD04),
++        ("conflicts TYPE(priority)", good_cs, None, [{**K, "priority": "x", "canons": ["C", "C2"]}], good_oa, CD04),
++        ("pair NONCONTRADICTION", good_cs, [{**K}], None, good_oa, CD04),
++    ]
++    for label, cs, unc, conf, oa, expected in cases:
++        cd = _cd(canons_selected=cs, uncanonized=unc, conflicts=conf, referential_canons=_CANONS_M)
++        v = run_coherence_engine(_env(cd=cd, oa=oa))
++        assert v["status"] == BLOCKED and v["blocked_by"] == expected, (label, v.get("blocked_by"))
+diff --git a/zoran_v2/canon_determination.py b/zoran_v2/canon_determination.py
+index 4cbe2be..a18d25f 100644
+--- a/zoran_v2/canon_determination.py
++++ b/zoran_v2/canon_determination.py
+@@ -27,6 +27,10 @@ import json
+ 
+ COMPONENT_ID = "04_CANON_DETERMINATION"
+ VERSION = "1.0.0"
++FULL_REGISTRY_SOURCE = "CANONS.yaml"
++FULL_REGISTRY_VERSION = "1.0.0"
++REGISTRY_NORMALIZATION_ID = "zoran_v2.canon_determination._normalize_registry"
++REGISTRY_NORMALIZATION_VERSION = "1.0.0"
+ 
+ GOVERNANCE = {
+     "OBJECT_ID": "ZORAN-V2-COMPONENT-04-CANON-DETERMINATION",
+@@ -44,13 +48,14 @@ GOVERNANCE = {
+         "NO_NETWORK",
+         "NO_MEMORY",
+         "DETERMINISTIC_REGISTRY_NORMALIZATION",
++        "FULL_REGISTRY_COMMITMENT",
+         "FROZEN_REFERENTIAL_FINGERPRINT",
+         "CONFLICT_LISTED_NEVER_SILENT",
+         "FAIL_CLOSED",
+         "DETERMINISTIC",
+         "IMMUTABLE_SNAPSHOT",
+     ],
+-    "TRACEABILITY": "canons_selected + conflicts + uncanonized explicites ; fingerprint sha256 sur records complets ; SHA git ; run CI",
++    "TRACEABILITY": "canons_selected + conflicts + uncanonized explicites ; fingerprints du sous-ensemble applique et du registre normalise complet ; SHA git ; run CI",
+     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
+     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
+     "DETECTION_MODIF": "SHA git + CI GitHub Actions + fingerprint du referentiel",
+@@ -168,7 +173,7 @@ def _valid_object_frame_map(ofm) -> bool:
+ 
+ OUTPUT_KEYS = (
+     "component", "version", "status", "blocked_by",
+-    "canons_selected", "canon_referential", "conflicts",
++    "canons_selected", "canon_referential", "full_registry_commitment", "conflicts",
+     "uncanonized", "resource_estimate", "order_key",
+ )
+ 
+@@ -187,11 +192,25 @@ def _empty_referential() -> dict:
+     return {"fingerprint": _EMPTY_FINGERPRINT, "canons": [], "priorities": {}}
+ 
+ 
++def _full_registry_commitment(normalized_registry: list) -> dict:
++    """Engagement versionne du registre NORMALISE COMPLET, distinct du sous-referentiel applique."""
++    return {
++        "full_registry_fingerprint": _fingerprint(normalized_registry),
++        "registry_version": FULL_REGISTRY_VERSION,
++        "registry_source": FULL_REGISTRY_SOURCE,
++        "normalization": {
++            "id": REGISTRY_NORMALIZATION_ID,
++            "version": REGISTRY_NORMALIZATION_VERSION,
++        },
++    }
++
++
+ def _blocked(by: str) -> dict:
+     return {
+         "component": COMPONENT_ID, "version": VERSION,
+         "status": BLOCKED, "blocked_by": by,
+         "canons_selected": [], "canon_referential": _empty_referential(),
++        "full_registry_commitment": _full_registry_commitment([]),
+         "conflicts": [], "uncanonized": [],
+         "resource_estimate": {"objects": 0, "frames": 0, "pairs": 0, "canons_applied": 0},
+         "order_key": ORDER_KEY,
+@@ -305,6 +324,7 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
+         return _blocked(OA03)
+ 
+     norm_registry = _normalize_registry(registry)
++    full_registry_commitment = _full_registry_commitment(norm_registry)
+ 
+     # Payloads déjà VALIDÉS (type canonique) -> accès direct, sans `or []` ni skip silencieux.
+     kind_by_key = {o["object_key"]: o["kind"] for o in od["objects"]}
+@@ -354,6 +374,7 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
+         "status": PASS, "blocked_by": None,
+         "canons_selected": canons_selected,
+         "canon_referential": canon_referential,
++        "full_registry_commitment": full_registry_commitment,
+         "conflicts": conflicts,
+         "uncanonized": uncanonized,
+         "resource_estimate": resource_estimate,
+diff --git a/zoran_v2/coherence_engine.py b/zoran_v2/coherence_engine.py
+index 7aeb92f..7a45cb2 100644
+--- a/zoran_v2/coherence_engine.py
++++ b/zoran_v2/coherence_engine.py
+@@ -22,7 +22,13 @@ from __future__ import annotations
+ 
+ import statistics
+ 
+-from zoran_v2.canon_determination import _fingerprint as _canon_fingerprint
++from zoran_v2.canon_determination import (
++    _clean_canon,
++    _fingerprint as _canon_fingerprint,
++    _full_registry_commitment,
++    _normalize_registry,
++    load_canon_registry,
++)
+ 
+ COMPONENT_ID = "05_COHERENCE_ENGINE"
+ VERSION = "1.0.0"
+@@ -46,16 +52,19 @@ GOVERNANCE = {
+         "NO_NETWORK",
+         "NO_MEMORY",
+         "REFERENTIAL_FINGERPRINT_VERIFIED",
++        "INDEPENDENT_FULL_REGISTRY_REQUIRED",
++        "FULL_REGISTRY_COMMITMENT_VERIFIED",
++        "COVERAGE_04_VS_02_AUTHORITATIVE",
+         "RESOURCE_VETO_BEFORE_07",
+         "FAIL_CLOSED",
+         "DETERMINISTIC",
+         "IMMUTABLE_SNAPSHOT",
+     ],
+-    "TRACEABILITY": "coherence {delta_phi,tension,sigma,S} + resource verdict ; fingerprint 04 verifie ; SHA git ; run CI",
++    "TRACEABILITY": "coherence {delta_phi,tension,sigma,S} + resource verdict ; sous-referentiel 04 et engagement registre complet independant verifies ; SHA git ; run CI",
+     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
+     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
+     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
+-    "ALERTE": "status=BLOCKED si 00/01/02/03/04 != PASS ou fingerprint 04 absent ; veto RESSOURCE si delta_phi < 0.5",
++    "ALERTE": "status=BLOCKED si 00/01/02/03/04 != PASS, fingerprint 04 absent, object_frame_map 02 malforme, ou couverture 04 != univers autoritaire 02 (paire omise/inventee) ; veto RESSOURCE si delta_phi < 0.5",
+     "ANTI_REGRESSION": "tests formule canonique verrouillee + determinisme + fail-closed + veto ressource + gouvernance ; gate CI",
+ }
+ 
+@@ -130,13 +139,88 @@ def _frozen_referential_wellformed(frozen_canons: list) -> bool:
+     KeyError/TypeError. Un record malformé (``{}``, ``[]``, str, ``id`` non-str/vide) -> fail-closed
+     au lieu d'un crash (finding audit : 05 crashait sur un référentiel 04 malformé).
+     """
++    seen_ids = set()
+     for c in frozen_canons:
+         if not (isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("id")):
+             return False
++        if c["id"] in seen_ids:
++            return False
++        seen_ids.add(c["id"])
++        if isinstance(c.get("priority"), bool) or not isinstance(c.get("priority"), int):
++            return False
++        for field in ("applies_to_frames", "applies_to_kinds"):
++            values = c.get(field)
++            if not (isinstance(values, list)
++                    and all(isinstance(value, str) and value for value in values)
++                    and len(values) == len(set(values))):
++                return False
+     return True
+ 
+ 
+-def run_coherence_engine(envelope: dict) -> dict:
++def _object_kinds(objects):
++    """Map object_key -> kind for a strict object_discovery payload, else None."""
++    if not isinstance(objects, list):
++        return None
++    kinds = {}
++    for obj in objects:
++        if not (isinstance(obj, dict)
++                and isinstance(obj.get("object_key"), str) and obj["object_key"]
++                and isinstance(obj.get("kind"), str) and obj["kind"]):
++            return None
++        if obj["object_key"] in kinds:
++            return None
++        kinds[obj["object_key"]] = obj["kind"]
++    return kinds
++
++
++def _strict_normalized_full_registry(full_registry):
++    """Normalize the independent full registry, rejecting malformed or duplicate raw records."""
++    if not isinstance(full_registry, list):
++        return None
++    seen_ids = set()
++    for canon in full_registry:
++        if not isinstance(canon, dict):
++            return None
++        canon_id = canon.get("id")
++        priority = canon.get("priority")
++        if not (isinstance(canon_id, str) and canon_id
++                and not isinstance(priority, bool) and isinstance(priority, int)):
++            return None
++        if canon_id in seen_ids:
++            return None
++        seen_ids.add(canon_id)
++        for field in ("applies_to_frames", "applies_to_kinds"):
++            values = canon.get(field)
++            if not (isinstance(values, list)
++                    and all(isinstance(value, str) and value for value in values)
++                    and len(values) == len(set(values))):
++                return None
++        if _clean_canon(canon) is None:
++            return None
++    normalized = _normalize_registry(full_registry)
++    return normalized if len(normalized) == len(full_registry) else None
++
++
++def _object_frame_pairs(ofm):
++    """Couples (object_key, frame) AUTORITAIRES de 02 (object_frame_map), ou None si malformé.
++
++    Sert de référence de COUVERTURE : l'univers de 04 doit coïncider exactement (CSB-PROV-P1-004).
++    """
++    if not isinstance(ofm, list):
++        return None
++    pairs = set()
++    for e in ofm:
++        if not (isinstance(e, dict) and isinstance(e.get("object_key"), str) and e.get("object_key")):
++            return None
++        frames = e.get("frames")
++        if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
++            return None
++        for f in frames:
++            pairs.add(_pair(e["object_key"], f))
++    return pairs
++
++
++def run_coherence_engine(envelope: dict, full_registry: list | None = None) -> dict:
+     """Fonction PURE : envelope(00→04) -> cohérence S canonique + verdict ressource."""
+     if not isinstance(envelope, dict):
+         raise TypeError("envelope doit être un dict")
+@@ -149,6 +233,13 @@ def run_coherence_engine(envelope: dict) -> dict:
+             return _blocked(comp)
+ 
+     cd = envelope["canon_determination"]
++    normalized_full_registry = _strict_normalized_full_registry(full_registry)
++    if normalized_full_registry is None:
++        return _blocked(CD04)
++    commitment = cd.get("full_registry_commitment")
++    if commitment != _full_registry_commitment(normalized_full_registry):
++        return _blocked(CD04)
++
+     referential = cd.get("canon_referential")
+     fingerprint = referential.get("fingerprint") if isinstance(referential, dict) else None
+     if not (isinstance(fingerprint, str) and fingerprint):
+@@ -190,20 +281,146 @@ def run_coherence_engine(envelope: dict) -> dict:
+     if not _keys_all_str(canons_selected, uncanonized, analysis, conflicts):
+         return _blocked(MALFORMED)
+ 
++    # GC-05-P1-005 : chaque cible CANONISÉE (04) doit porter un `canons` = liste NON VIDE de chaînes
++    # UNIQUES non vides. Sinon la paire serait comptée canonisée/résolue SANS canon valide (faux
++    # delta_phi=1.0 / authorize_llm), et un conteneur malformé serait normalisé en silence (`or []`).
++    for c in canons_selected:
++        canons = c.get("canons")
++        if not (isinstance(canons, list) and canons
++                and all(isinstance(x, str) and x for x in canons)
++                and len(canons) == len(set(canons))):
++            return _blocked(CD04)
++
++    # GC-05-P1-007 (PROVENANCE des canons) : chaque canon SÉLECTIONNÉ doit appartenir au référentiel
++    # GELÉ 04. Un id bien formé mais ABSENT du référentiel (canon INVENTÉ) ferait compter la paire
++    # canonisée/résolue avec un canon inexistant -> faux delta_phi / sigma. `frozen_canons` déjà validé
++    # wellformed (ids str non vides) ; `canons` déjà validé (liste non vide de str uniques) -> accès direct.
++    allowed_canon_ids = {c["id"] for c in frozen_canons}
++    for c in canons_selected:
++        if not set(c["canons"]) <= allowed_canon_ids:
++            return _blocked(CD04)
++
++    # GC-05-P1-006 (EXISTENCE des opérants) : chaque entrée `analysis` (03) doit porter des opérants
++    # RÉELS = liste NON VIDE de str UNIQUES non vides. Contrat 03 : `analysis` = paires POURVUES
++    # d'opérants (les paires sans opérant vont dans `unanalyzed`) -> operants non vide est garanti pour
++    # toute entrée analysis. Sinon la paire est comptée « pourvue d'opérants » (résolue) SANS opérant
++    # valide -> faux delta_phi / authorize_llm. Fail-closed AVANT calcul. (Entrées non-dict déjà rejetées.)
++    for a in analysis:
++        ops = a.get("operants") if isinstance(a, dict) else None
++        if not (isinstance(ops, list) and ops
++                and all(isinstance(x, str) and x for x in ops)
++                and len(ops) == len(set(ops))):
++            return _blocked(OA03)
++
+     operant_pairs = {
+         _pair(a.get("object_key"), a.get("frame"))
+         for a in analysis if isinstance(a, dict)
+     }
+-    # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées).
+-    canonized_pairs = {
+-        _pair(c.get("object_key"), c.get("frame"))
+-        for c in canons_selected if isinstance(c, dict)
+-    }
+-    uncanon_pairs = {
+-        _pair(u.get("object_key"), u.get("frame"))
+-        for u in uncanonized if isinstance(u, dict)
+-    }
++    # Univers des paires = tout ce que 04 a vu (canonisées + non canonisées). On garde les LISTES
++    # avant conversion en set : sinon un doublon (même paire deux fois) ou une CONTRADICTION (paire
++    # à la fois canonisée ET non-canonisée) serait masqué par le set.
++    canonized_pair_list = [_pair(c.get("object_key"), c.get("frame"))
++                           for c in canons_selected if isinstance(c, dict)]
++    uncanon_pair_list = [_pair(u.get("object_key"), u.get("frame"))
++                         for u in uncanonized if isinstance(u, dict)]
++    canonized_pairs = set(canonized_pair_list)
++    uncanon_pairs = set(uncanon_pair_list)
++
++    # CSB-PROV-P1-004 (contradiction interne 04) : une paire ne peut pas être à la fois canonisée ET
++    # non-canonisée, ni apparaître en DOUBLE dans une liste — sinon delta_phi/S seraient faussés
++    # (paire comptée résolue tout en étant déclarée uncanonized). Fail-closed AVANT tout calcul.
++    if (len(canonized_pair_list) != len(canonized_pairs)
++            or len(uncanon_pair_list) != len(uncanon_pairs)
++            or (canonized_pairs & uncanon_pairs)):
++        return _blocked(CD04)
++
+     universe = canonized_pairs | uncanon_pairs
++
++    # CSB-PROV-P1-004 : l'univers vu par 04 doit COUVRIR EXACTEMENT les couples autoritaires de 02
++    # (object_frame_map). Un payload 04 (déclaré PASS) qui OMET une paire présente dans 02 — ou qui
++    # en INVENTE une — fausserait delta_phi/S et autoriserait le LLM « à couverture trouée ».
++    # 05 recoupe donc 04 contre 02 (comme 04 recoupe 03 contre 01/02), fail-closed.
++    fs = envelope["frame_selection"]
++    authoritative_pairs = _object_frame_pairs(fs.get("object_frame_map"))
++    if authoritative_pairs is None:
++        return _blocked(FS02)            # object_frame_map (02) malformé
++    if universe != authoritative_pairs:
++        return _blocked(CD04)            # couverture 04 incomplète/inventée vs univers autoritaire 02
++
++    # Rebuild the exact 04 selection from authoritative objects, pairs and frozen applicability.
++    # This closes incompatible frame/kind, omission, invention and non-canonical ordering before S.
++    kind_by_object_key = _object_kinds(envelope["object_discovery"].get("objects"))
++    if kind_by_object_key is None:
++        return _blocked(OD01)
++    if any(object_key not in kind_by_object_key for object_key, _frame in authoritative_pairs):
++        return _blocked(CD04)
++
++    expected_selected = {}
++    expected_uncanonized = set()
++    for object_key, frame in authoritative_pairs:
++        kind = kind_by_object_key[object_key]
++        applicable = [canon for canon in normalized_full_registry
++                      if frame in canon["applies_to_frames"] and kind in canon["applies_to_kinds"]]
++        applicable.sort(key=lambda canon: (-canon["priority"], canon["id"]))
++        if applicable:
++            expected_selected[(object_key, frame)] = tuple(canon["id"] for canon in applicable)
++        else:
++            expected_uncanonized.add((object_key, frame))
++
++    received_selected = {
++        (entry["object_key"], entry["frame"]): tuple(entry["canons"])
++        for entry in canons_selected
++    }
++    if received_selected != expected_selected or uncanon_pairs != expected_uncanonized:
++        return _blocked(CD04)
++
++    full_by_id = {canon["id"]: canon for canon in normalized_full_registry}
++    expected_frozen_ids = sorted({canon_id for ids in expected_selected.values() for canon_id in ids})
++    expected_frozen_canons = [full_by_id[canon_id] for canon_id in expected_frozen_ids]
++    if frozen_canons != expected_frozen_canons:
++        return _blocked(CD04)
++
++    # E11 — REVALIDATION EXACTE de la preuve de tension (GC-05-P1-E11-CONFLICT-EXACTNESS). `conflicts`
++    # alimente tension = len(conflicts)/total_pairs. 05 ne valide PAS les conflits isolément (gardes
++    # contournables) : il RECONSTRUIT l'ensemble autoritaire que 04 peut produire à partir de
++    # canons_selected[*].canons (== canons APPLICABLES, cf. 04 `_conflicts_for`) + priorités du
++    # référentiel GELÉ, puis exige l'ÉGALITÉ EXACTE (multiset) avec les conflits reçus. 04 : un conflit
++    # = groupe de >=2 canons applicables de MÊME priorité, ids TRIÉS, UNE entrée par (paire, priorité).
++    # Ferme d'un coup : priorité inventée, mélange de priorités, doublon réordonné, multi-entrées même
++    # paire/priorité, groupe partiel, ordre non canonique, conflit omis/ajouté. (Non-dict et
++    # object_key/frame non-str déjà rejetés par _keys_all_str.)
++    priority_by_id = {}
++    for c in normalized_full_registry:
++        p = c.get("priority")
++        if isinstance(p, bool) or not isinstance(p, int):
++            return _blocked(FINGERPRINT_MISMATCH)  # référentiel gelé sans priorité entière -> fail-closed
++        priority_by_id[c["id"]] = p
++    # Ensemble ATTENDU (ce que 04 aurait produit). canons_selected[*].canons ⊆ allowed (GC-05-P1-007)
++    # -> tous les ids sont dans priority_by_id (pas de KeyError).
++    expected_conflicts = []
++    for c in canons_selected:
++        groups: dict = {}
++        for cid in c["canons"]:
++            groups.setdefault(priority_by_id[cid], []).append(cid)
++        for prio, ids in groups.items():
++            if len(ids) >= 2:
++                expected_conflicts.append((c["object_key"], c["frame"], prio, tuple(sorted(ids))))
++    # Ensemble REÇU. Structure minimale sûre (priority int ; canons = liste de str non vides) pour un
++    # tuple hashable/comparable ; l'égalité exacte ci-dessous tranche le reste.
++    received_conflicts = []
++    for cf in conflicts:
++        prio = cf.get("priority")
++        ccanons = cf.get("canons")
++        if isinstance(prio, bool) or not isinstance(prio, int):
++            return _blocked(CD04)
++        if not (isinstance(ccanons, list) and ccanons and all(isinstance(x, str) and x for x in ccanons)):
++            return _blocked(CD04)
++        received_conflicts.append((cf["object_key"], cf["frame"], prio, tuple(ccanons)))
++    # Égalité EXACTE (multiset, ordre déterministe). received garde l'ORDRE reçu des ids -> un ordre non
++    # canonique diffère de expected (ids triés) -> BLOCKED.
++    if sorted(received_conflicts) != sorted(expected_conflicts):
++        return _blocked(CD04)
++
+     total_pairs = len(universe)
+ 
+     # ΔΦ = part des paires résolues (canonisées ET pourvues d'opérants).
+@@ -218,9 +435,9 @@ def run_coherence_engine(envelope: dict) -> dict:
+     # de l'univers (un objet à 0 canon compte comme 0 -> dispersion non sous-estimée).
+     all_objects = {ok for (ok, _fr) in universe}
+     canons_by_object = {ok: set() for ok in all_objects}
++    # `canons` déjà validé (liste non vide de str uniques, GC-05-P1-005) -> accès direct, sans `or []`.
+     for c in canons_selected:
+-        if isinstance(c, dict):
+-            canons_by_object.setdefault(c.get("object_key"), set()).update(c.get("canons") or [])
++        canons_by_object.setdefault(c["object_key"], set()).update(c["canons"])
+     counts = [len(canons_by_object[ok]) for ok in sorted(all_objects)]
+     if len(counts) >= 2 and statistics.mean(counts) > 0:
+         sigma = round(statistics.pstdev(counts) / statistics.mean(counts), 6)
+@@ -266,4 +483,4 @@ def run_coherence_engine(envelope: dict) -> dict:
+ 
+ 
+ def main(envelope: dict) -> dict:
+-    return run_coherence_engine(envelope)
++    return run_coherence_engine(envelope, load_canon_registry())
