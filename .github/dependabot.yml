@@ -1,0 +1,30 @@
+# Dependabot version updates — gratuit (repo prive inclus).
+# Cible : dependances Python (pip) + actions GitHub utilisees par les workflows.
+# Ne modifie AUCUNE logique produit : ouvre uniquement des PR de bump versionnees.
+version: 2
+updates:
+  # --- Dependances Python (requirements-dev.txt, ecosysteme pip) ---
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+
+  # --- Actions GitHub (garde les SHA epingles a jour) ---
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
