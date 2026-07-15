@@ -14,8 +14,8 @@ required_keys:
   - execution_status         # ∈ execution_status_enum
   - started_at_context       # contexte temporel INJECTÉ (jamais horloge)
   - completed_at_context     # contexte temporel INJECTÉ (jamais horloge)
-  - effects                  # liste des effets déclarés (peut être vide)
-  - anomalies                # liste d'anomalies documentées (peut être vide)
+  - effects                  # liste stricte des effets déclarés (peut être vide)
+  - anomalies                # liste stricte de chaînes non vides documentant les anomalies (peut être vide)
   - rollback_available       # booléen : un rollback est-il disponible
   - provenance_refs          # références de provenance explicites (non vides)
   - CONTENT_SHA256           # hash de l'objet SANS ce champ (revalidé)

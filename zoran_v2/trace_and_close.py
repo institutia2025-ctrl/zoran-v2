@@ -182,14 +182,23 @@ def _validate_execution_result(execution_result, plan):
         raise ValueError((EXEC_MALFORMED, "execution_result"))
     if not _content_ok(execution_result):
         raise ValueError((EXEC_PROVENANCE, "execution_result.CONTENT_SHA256"))
+    if not (isinstance(execution_result["execution_result_id"], str)
+            and execution_result["execution_result_id"]):
+        raise ValueError((EXEC_MALFORMED, "execution_result.execution_result_id"))
+    for field in ("started_at_context", "completed_at_context"):
+        if not (isinstance(execution_result[field], str) and execution_result[field]):
+            raise ValueError((EXEC_MALFORMED, f"execution_result.{field}"))
+    if not isinstance(execution_result["effects"], list):
+        raise ValueError((EXEC_MALFORMED, "execution_result.effects"))
+    if not (isinstance(execution_result["anomalies"], list)
+            and all(isinstance(item, str) and item for item in execution_result["anomalies"])):
+        raise ValueError((EXEC_MALFORMED, "execution_result.anomalies"))
     if not _valid_refs(execution_result["provenance_refs"]):
         raise ValueError((EXEC_PROVENANCE, "execution_result.provenance_refs"))
     if not (isinstance(execution_result["executor_id"], str) and execution_result["executor_id"]):
         raise ValueError((EXEC_MALFORMED, "execution_result.executor_id"))
     if execution_result["execution_status"] not in _EXEC_STATUS_ENUM:
         raise ValueError((EXEC_MALFORMED, "execution_result.execution_status"))
-    if not isinstance(execution_result["anomalies"], list):
-        raise ValueError((EXEC_MALFORMED, "execution_result.anomalies"))
     if not isinstance(execution_result["rollback_available"], bool):
         raise ValueError((EXEC_MALFORMED, "execution_result.rollback_available"))
     if execution_result["action_plan_id"] != plan["action_plan_id"]:
@@ -211,6 +220,9 @@ def _validate_human_decision(human_decision, plan):
         raise ValueError((HUMAN_MALFORMED, "human_decision"))
     if not _content_ok(human_decision):
         raise ValueError((HUMAN_MALFORMED, "human_decision.CONTENT_SHA256"))
+    if not (isinstance(human_decision["human_decision_id"], str)
+            and human_decision["human_decision_id"]):
+        raise ValueError((HUMAN_MALFORMED, "human_decision.human_decision_id"))
     if not _valid_refs(human_decision["provenance_refs"]):
         raise ValueError((HUMAN_MALFORMED, "human_decision.provenance_refs"))
     if not (isinstance(human_decision["identity_ref"], str) and human_decision["identity_ref"]):

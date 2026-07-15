@@ -252,6 +252,44 @@ def test_CE_exec_malforme():
     assert _code(_close(env, execution_result=er)) == EXEC_MALFORMED
 
 
+@pytest.mark.parametrize(("field", "bad"), [
+    ("execution_result_id", ""), ("execution_result_id", None), ("execution_result_id", 1),
+    ("started_at_context", ""), ("started_at_context", None), ("started_at_context", 1),
+    ("completed_at_context", ""), ("completed_at_context", None), ("completed_at_context", 1),
+    ("effects", ""), ("effects", None), ("effects", {}),
+    ("anomalies", ""), ("anomalies", None), ("anomalies", {}),
+    ("anomalies", [""]), ("anomalies", [None]), ("anomalies", [1]),
+    ("executor_id", ""), ("executor_id", None), ("executor_id", 1),
+    ("provenance_refs", []), ("provenance_refs", None), ("provenance_refs", "prov"),
+    ("provenance_refs", [""]), ("provenance_refs", [None]), ("provenance_refs", [1]),
+    ("execution_status", ""), ("execution_status", None), ("execution_status", 1),
+    ("rollback_available", None), ("rollback_available", 0), ("rollback_available", 1),
+    ("rollback_available", "true"),
+    ("action_plan_id", ""), ("action_plan_id", None), ("action_plan_id", 1),
+    ("action_id", ""), ("action_id", None), ("action_id", 1),
+    ("target_refs", []), ("target_refs", None), ("target_refs", "target"),
+])
+def test_CE_exec_champ_obligatoire_incomplet_bloque(field, bad):
+    env = _full_env(action_id="ACTION_ANNOTATE")
+    er = _exec_result(_plan(env))
+    er[field] = bad
+    er["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in er.items() if k != "CONTENT_SHA256"})
+
+    out = _close(env, execution_result=er)
+
+    assert out["status"] == BLOCKED
+    assert out["closure_id"] is None
+
+
+@pytest.mark.parametrize("bad", ["", None, 1])
+def test_CE_exec_content_sha256_incomplet_bloque(bad):
+    env = _full_env(action_id="ACTION_ANNOTATE")
+    er = _exec_result(_plan(env))
+    er["CONTENT_SHA256"] = bad
+    out = _close(env, execution_result=er)
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+
+
 def test_CE_exec_content_sha256_falsifie():
     env = _full_env(action_id="ACTION_ANNOTATE")
     er = _exec_result(_plan(env)); er["executor_id"] = "TAMPERED"  # CONTENT_SHA256 devient obsolète
@@ -304,6 +342,39 @@ def test_CE_human_malforme():
     env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
     hd = _human(_plan(env)); del hd["identity_ref"]
     assert _code(_close(env, human_decision=hd)) == HUMAN_MALFORMED
+
+
+@pytest.mark.parametrize(("field", "bad"), [
+    ("human_decision_id", ""), ("human_decision_id", None), ("human_decision_id", 1),
+    ("identity_ref", ""), ("identity_ref", None), ("identity_ref", 1),
+    ("decided_at_context", ""), ("decided_at_context", None), ("decided_at_context", 1),
+    ("provenance_refs", []), ("provenance_refs", None), ("provenance_refs", "prov"),
+    ("provenance_refs", [""]), ("provenance_refs", [None]), ("provenance_refs", [1]),
+    ("decision", ""), ("decision", None), ("decision", 1),
+    ("action_plan_id", ""), ("action_plan_id", None), ("action_plan_id", 1),
+    ("action_id", ""), ("action_id", None), ("action_id", 1),
+    ("target_refs", []), ("target_refs", None), ("target_refs", "target"),
+    ("approval_scope", {}), ("approval_scope", None), ("approval_scope", "scope"),
+])
+def test_CE_human_champ_obligatoire_incomplet_bloque(field, bad):
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    hd = _human(_plan(env))
+    hd[field] = bad
+    hd["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in hd.items() if k != "CONTENT_SHA256"})
+
+    out = _close(env, human_decision=hd)
+
+    assert out["status"] == BLOCKED
+    assert out["closure_id"] is None
+
+
+@pytest.mark.parametrize("bad", ["", None, 1])
+def test_CE_human_content_sha256_incomplet_bloque(bad):
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    hd = _human(_plan(env))
+    hd["CONTENT_SHA256"] = bad
+    out = _close(env, human_decision=hd)
+    assert out["status"] == BLOCKED and out["closure_id"] is None
 
 
 def test_CE_human_scope_mismatch():
