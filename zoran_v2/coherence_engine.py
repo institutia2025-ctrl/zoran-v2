@@ -46,6 +46,7 @@ GOVERNANCE = {
         "NO_NETWORK",
         "NO_MEMORY",
         "REFERENTIAL_FINGERPRINT_VERIFIED",
+        "COVERAGE_04_VS_02_AUTHORITATIVE",
         "RESOURCE_VETO_BEFORE_07",
         "FAIL_CLOSED",
         "DETERMINISTIC",
@@ -55,7 +56,7 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00/01/02/03/04 != PASS ou fingerprint 04 absent ; veto RESSOURCE si delta_phi < 0.5",
+    "ALERTE": "status=BLOCKED si 00/01/02/03/04 != PASS, fingerprint 04 absent, object_frame_map 02 malforme, ou couverture 04 != univers autoritaire 02 (paire omise/inventee) ; veto RESSOURCE si delta_phi < 0.5",
     "ANTI_REGRESSION": "tests formule canonique verrouillee + determinisme + fail-closed + veto ressource + gouvernance ; gate CI",
 }
 
@@ -136,6 +137,25 @@ def _frozen_referential_wellformed(frozen_canons: list) -> bool:
     return True
 
 
+def _object_frame_pairs(ofm):
+    """Couples (object_key, frame) AUTORITAIRES de 02 (object_frame_map), ou None si malformé.
+
+    Sert de référence de COUVERTURE : l'univers de 04 doit coïncider exactement (CSB-PROV-P1-004).
+    """
+    if not isinstance(ofm, list):
+        return None
+    pairs = set()
+    for e in ofm:
+        if not (isinstance(e, dict) and isinstance(e.get("object_key"), str) and e.get("object_key")):
+            return None
+        frames = e.get("frames")
+        if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+            return None
+        for f in frames:
+            pairs.add(_pair(e["object_key"], f))
+    return pairs
+
+
 def run_coherence_engine(envelope: dict) -> dict:
     """Fonction PURE : envelope(00→04) -> cohérence S canonique + verdict ressource."""
     if not isinstance(envelope, dict):
@@ -204,6 +224,18 @@ def run_coherence_engine(envelope: dict) -> dict:
         for u in uncanonized if isinstance(u, dict)
     }
     universe = canonized_pairs | uncanon_pairs
+
+    # CSB-PROV-P1-004 : l'univers vu par 04 doit COUVRIR EXACTEMENT les couples autoritaires de 02
+    # (object_frame_map). Un payload 04 (déclaré PASS) qui OMET une paire présente dans 02 — ou qui
+    # en INVENTE une — fausserait delta_phi/S et autoriserait le LLM « à couverture trouée ».
+    # 05 recoupe donc 04 contre 02 (comme 04 recoupe 03 contre 01/02), fail-closed.
+    fs = envelope["frame_selection"]
+    authoritative_pairs = _object_frame_pairs(fs.get("object_frame_map"))
+    if authoritative_pairs is None:
+        return _blocked(FS02)            # object_frame_map (02) malformé
+    if universe != authoritative_pairs:
+        return _blocked(CD04)            # couverture 04 incomplète/inventée vs univers autoritaire 02
+
     total_pairs = len(universe)
 
     # ΔΦ = part des paires résolues (canonisées ET pourvues d'opérants).

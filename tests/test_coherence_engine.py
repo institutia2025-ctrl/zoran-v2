@@ -44,15 +44,24 @@ def _oa(analysis=None):
     return {"status": PASS, "analysis": analysis or [], "unanalyzed": []}
 
 
-def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st="PASS"):
+def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st="PASS", ofm=None):
     cdn = cd if cd is not None else _cd()
     oan = oa if oa is not None else _oa()
     cdn = {**cdn, "status": cd_st}
     oan = {**oan, "status": oa_st}
+    if ofm is None:
+        # object_frame_map (02) autoritaire : couvre EXACTEMENT les couples de 04 (canonized ∪ uncanon).
+        # 05 recoupe desormais l'univers de 04 contre 02 (CSB-PROV-P1-004). Construction robuste
+        # (entrees malformees ignorees ici -> ces cas sont bloques par 05 AVANT le contrôle couverture).
+        _pairs = {}
+        for c in list(cdn.get("canons_selected") or []) + list(cdn.get("uncanonized") or []):
+            if isinstance(c, dict) and isinstance(c.get("object_key"), str) and isinstance(c.get("frame"), str):
+                _pairs.setdefault(c["object_key"], set()).add(c["frame"])
+        ofm = [{"object_key": k, "frames": sorted(v)} for k, v in sorted(_pairs.items())]
     return {
         "runtime_check": {"status": rc},
         "object_discovery": {"status": od},
-        "frame_selection": {"status": fs},
+        "frame_selection": {"status": fs, "object_frame_map": ofm},
         "operants_operes": oan,
         "canon_determination": cdn,
     }
@@ -345,3 +354,46 @@ def test_conflicts_element_non_dict_bloque():
     oa = _oa(analysis=[{"object_key": "k", "frame": "CODE", "operants": ["O"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED
+
+
+# --- RÉGRESSION Codex Session B CSB-PROV-P1-004 : couverture 04 vs univers autoritaire 02 ---
+
+_CANONS = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+
+
+def test_04_omet_une_paire_de_02_bloque():
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    # 02 contient (k1,CODE) ET (k2,TEXT) ; 04 (declare PASS) OMET (k2,TEXT) -> couverture trouee.
+    ofm = [{"object_key": "k1", "frames": ["CODE"]}, {"object_key": "k2", "frames": ["TEXT"]}]
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa, ofm=ofm))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_04_invente_une_paire_absente_de_02_bloque():
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]},
+                              {"object_key": "kX", "frame": "ZZZ", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    ofm = [{"object_key": "k1", "frames": ["CODE"]}]  # (kX,ZZZ) inventee par 04, absente de 02
+    v = run_coherence_engine(_env(cd=cd, ofm=ofm))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+
+
+def test_02_object_frame_map_malforme_bloque():
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    for bad in ([{"object_key": [], "frames": ["CODE"]}],
+                [{"object_key": "k1", "frames": "CODE"}], "x", [42], {}):
+        v = run_coherence_engine(_env(cd=cd, ofm=bad))
+        assert v["status"] == BLOCKED and v["blocked_by"] == "02_ANALYSIS_FRAME_SELECTION", bad
+
+
+def test_04_couvre_exactement_02_passe():
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))  # ofm auto = exactement (k1,CODE)
+    assert v["status"] == PASS and v["resource"]["authorize_llm"] is True
