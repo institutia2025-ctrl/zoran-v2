@@ -51,9 +51,13 @@ def _env(response=None, s_pre=0.5, targets=None, executed=True, fingerprint="FP"
         "runtime_check": {"status": "PASS"},
         "object_discovery": {"status": "PASS"},
         "frame_selection": {"status": "PASS"},
-        "operants_operes": {"status": "PASS"},
+        # Vocabulaire autoritaire : opérants de 03 (les canons 04 sont dans canon_referential.canons).
+        "operants_operes": {"status": "PASS",
+                            "analysis": [{"object_key": "k", "frame": "CODE",
+                                          "operants": ["OP_A", "OP_B"]}]},
         "canon_determination": {"status": "PASS",
-                                "canon_referential": {"fingerprint": fingerprint, "canons": []}},
+                                "canon_referential": {"fingerprint": fingerprint,
+                                                      "canons": [{"id": "C"}, {"id": "C1"}, {"id": "C2"}]}},
         "coherence_engine": {"status": "PASS", "coherence": {"S": s_pre}},
         "llm_request_build": {"status": "PASS", "authorized": True, "llm_request": req},
         "llm_execution": {"status": "PASS", "executed": executed,
@@ -212,6 +216,75 @@ def test_blocked_06_frames_racine_incoherentes_avec_cibles():
     tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
              "canons": ["C"], "operants": ["OP_A"]}]
     _assert_blocked_malformed(_req_06(tgts, frames=["CODE", "FRONTEND"]))
+
+
+def test_blocked_06_canon_hors_referentiel_04():
+    # provenance : un canon 06 absent du référentiel gelé 04 -> BLOCKED (chaîne 04->06 fermée).
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["CANON_ABSENT_DU_04"], "operants": ["OP_A"]}]
+    _assert_blocked_malformed(_req_06(tgts))
+
+
+def test_blocked_06_operant_hors_analyse_03():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_ABSENT_DU_03"]}]
+    _assert_blocked_malformed(_req_06(tgts))
+
+
+# --- GC-08-005 : autorisation réelle de 06 revalidée ---
+
+def _env_authorized(value):
+    from zoran_v2.coherence_2 import ENVELOPE_MALFORMED
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    env = _env()
+    env["llm_request_build"] = {"status": "PASS", "authorized": value,
+                                "llm_request": _req_06(tgts)}
+    return run_coherence_2(env), ENVELOPE_MALFORMED
+
+
+def test_blocked_06_non_autorise_meme_avec_requete_valide_et_executed():
+    # GC-08-005 : status=PASS mais authorized=False (05 a veto) + requête valide + executed=True.
+    v, malformed = _env_authorized(False)
+    assert v["status"] == BLOCKED and v["blocked_by"] == malformed and v["authorize_09"] is False
+
+
+def test_blocked_06_authorized_non_strictement_true():
+    for truthy in (1, "true", None, "True"):
+        v, malformed = _env_authorized(truthy)
+        assert v["status"] == BLOCKED and v["blocked_by"] == malformed, truthy
+
+
+# --- GC-08-004 : coherence_S de 06 recoupé avec 05, fini ---
+
+def test_blocked_06_coherence_s_divergent_de_05():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    # 05.S = 0.5 (défaut) ; 06.coherence_S = 999 -> divergence -> BLOCKED.
+    _assert_blocked_malformed(_req_06(tgts, coherence_S=999))
+
+
+def test_blocked_06_coherence_s_non_fini():
+    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+             "canons": ["C"], "operants": ["OP_A"]}]
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        _assert_blocked_malformed(_req_06(tgts, coherence_S=bad))
+
+
+def test_blocked_05_s_non_fini():
+    from zoran_v2.coherence_2 import ENVELOPE_MALFORMED
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        env = _env()
+        env["coherence_engine"] = {"status": "PASS", "coherence": {"S": bad}}
+        # la requête 06 par défaut porte coherence_S=0.5 ; peu importe, 05 non-fini bloque d'abord.
+        v = run_coherence_2(env)
+        assert v["status"] == BLOCKED and v["blocked_by"] == ENVELOPE_MALFORMED, bad
+
+
+def test_accept_coherence_s_06_egal_05():
+    # non-régression : requête réelle où 06.coherence_S == 05.S -> pas de faux blocage.
+    v = run_coherence_2(_env(s_pre=0.5))  # _req_06 met coherence_S = s_pre
+    assert v["status"] == PASS and v["verdict"] == ACCEPT
 
 
 # ---------- ACCEPT ----------
