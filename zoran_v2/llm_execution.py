@@ -86,8 +86,8 @@ _REQUIRED_REQUEST_KEYS = frozenset((
     "frames", "targets", "pii_policy",
 ))
 _REQUIRED_TARGET_KEYS = frozenset((
-    "object_public_id", "kind", "frame", "canons", "operants",
-))
+    "object_public_id", "frame", "canons", "operants",
+))  # `kind` retiré (GC-051-001) : jamais transmis au LLM
 # object_public_id = SEUL identifiant autorisé côté LLM : format opaque déterministe généré
 # par 06 (`OBJ-0001`…). Toute autre forme = valeur potentiellement dérivée du contenu -> refus.
 _OBJ_PUBLIC_ID_RE = re.compile(r"^OBJ-\d{4,}$")
@@ -148,9 +148,6 @@ def _request_well_formed(request) -> bool:
         opid = t.get("object_public_id")
         if not (isinstance(opid, str) and _OBJ_PUBLIC_ID_RE.match(opid)):
             return False  # doit être l'ID opaque OBJ-nnnn, jamais une valeur dérivée du contenu
-        kind = t.get("kind")
-        if not (kind is None or isinstance(kind, str)):
-            return False
         if not isinstance(t.get("frame"), str):
             return False
         if not (_is_str_list(t.get("canons")) and _is_str_list(t.get("operants"))):
@@ -164,21 +161,18 @@ def _request_well_formed(request) -> bool:
 
 def _request_traces_to_envelope(request: dict, envelope: dict) -> bool:
     """Validation de PROVENANCE (finding GC-5FD-001) : chaque valeur STRUCTURELLE de la requête 06
-    doit TRACER à l'amont autoritaire de l'enveloppe (01/03/04). Une valeur injectée en 06 mais
-    ABSENTE de l'amont (ex. kind='Jean Dupont', canons=['dossier médical de X']) est refusée AVANT
-    tout appel — ce que le type/format seuls ne peuvent attraper.
+    doit TRACER à l'amont autoritaire de l'enveloppe (03/04). Une valeur injectée en 06 mais ABSENTE
+    de l'amont (ex. canons=['dossier médical de X'], frame/opérant fabriqué) est refusée AVANT tout
+    appel — ce que le type/format seuls ne peuvent attraper.
 
     CONVERGENT (contrairement aux heuristiques de contenu) : l'ensemble autorisé est FINI et défini
-    par l'amont réel, pas deviné. Ce n'est pas une ré-assemblage de 06 mais un contrôle de
-    CONTENANCE (⊆). NB : `kind` reste du texte utilisateur par conception 01 ; on garantit seulement
-    qu'aucune valeur n'est ajoutée au-delà de ce que le pipeline a réellement produit (le contenu
-    que l'utilisateur met dans son propre kind relève de 01/06, hors 07).
+    par l'amont réel, pas deviné. Ce n'est pas un ré-assemblage de 06 mais un contrôle de
+    CONTENANCE (⊆). NB : `kind` n'est plus dans la requête (GC-051-001) -> aucune valeur de texte
+    utilisateur libre n'atteint le LLM.
     """
-    od = envelope.get("object_discovery") or {}
     cd = envelope.get("canon_determination") or {}
     oa = envelope.get("operants_operes") or {}
 
-    valid_kinds = {o.get("kind") for o in (od.get("objects") or []) if isinstance(o, dict)}
     canons_selected = cd.get("canons_selected") or []
     analysis = oa.get("analysis") or []
     valid_frames = ({c.get("frame") for c in canons_selected if isinstance(c, dict)}
@@ -193,8 +187,6 @@ def _request_traces_to_envelope(request: dict, envelope: dict) -> bool:
     if not set(request.get("frames") or []) <= valid_frames:
         return False
     for t in (request.get("targets") or []):
-        if t.get("kind") is not None and t.get("kind") not in valid_kinds:
-            return False
         if t.get("frame") not in valid_frames:
             return False
         if not set(t.get("canons") or []) <= valid_canons:

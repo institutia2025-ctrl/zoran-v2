@@ -250,7 +250,9 @@ def test_pii_dans_canons_bloque_sans_appel():
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST and calls == []
 
 
-def test_pii_dans_kind_bloque_sans_appel():
+def test_cle_kind_hors_schema_rejetee_sans_appel():
+    # GC-051-001 : `kind` n'est plus une clé du schéma cible. Une requête portant un `kind`
+    # (quelle que soit sa valeur) est hors schéma -> BLOCKED, aucun appel.
     leaky = dict(_VALID_REQUEST["targets"][0], kind="code\x1fpii")
     bad = dict(_VALID_REQUEST, targets=[leaky])
     calls = []
@@ -294,11 +296,11 @@ def test_target_cle_manquante_bloque():
     assert v["status"] == BLOCKED and v["blocked_by"] == MALFORMED_REQUEST
 
 
-# --- RÉGRESSIONS audit ChatGPT GC-5FD-001 2026-07-15 : PROVENANCE (PII SANS séparateur \x1f) ---
+# --- RÉGRESSIONS audit ChatGPT GC-5FD-001 / GC-051-001 : PROVENANCE + retrait de `kind` ---
 
-def test_pii_sans_separateur_dans_kind_bloque_par_provenance():
-    # LE finding : kind='Jean Dupont' est une str VALIDE (type ok) SANS \x1f -> le verrou séparateur
-    # ne l'attrape pas. La PROVENANCE doit le bloquer : 'Jean Dupont' n'est pas un kind de l'amont 01.
+def test_kind_pii_sans_separateur_hors_schema_bloque():
+    # GC-051-001 : même une PII 'propre' (kind='Jean Dupont', sans \x1f, type str valide) est refusée
+    # car `kind` n'est plus une clé autorisée -> jamais de texte utilisateur libre au LLM.
     leaky = dict(_VALID_REQUEST["targets"][0], kind="Jean Dupont")
     bad = dict(_VALID_REQUEST, targets=[leaky])
     calls = []

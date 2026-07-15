@@ -87,10 +87,12 @@ def test_requete_construite_si_autorise():
     assert req["referential_fingerprint"] == "FP"
     assert req["coherence_S"] == 0.83
     assert req["frames"] == ["CODE"]
+    # GC-051-001 : `kind` n'est PLUS dans la requête (jamais transmis au LLM).
     assert req["targets"] == [{
-        "object_public_id": "OBJ-0001", "kind": "code", "frame": "CODE",
+        "object_public_id": "OBJ-0001", "frame": "CODE",
         "canons": ["CANON_STRUCTURE"], "operants": ["OP_DESCRIBE"],
     }]
+    assert "kind" not in req["targets"][0]
     assert v["object_id_map"] == {"OBJ-0001": "k1"}
 
 
@@ -127,6 +129,22 @@ def test_object_key_pii_n_atteint_pas_le_llm():
     assert pii not in blob  # AUCUNE fuite de la clé dérivée dans la requête
     assert v["llm_request"]["targets"][0]["object_public_id"] == "OBJ-0001"
     assert v["object_id_map"] == {"OBJ-0001": pii}  # correspondance LOCALE seulement
+
+
+def test_pii_dans_kind_admis_par_01_n_atteint_pas_le_llm():
+    # GC-051-001 (test adversarial ChatGPT) : 01 accepte TOUTE str non vide comme kind, donc une PII
+    # peut être un kind VALIDE en amont (pas seulement injectée en 06). `kind` étant supprimé de la
+    # requête, cette PII ne doit APPARAÎTRE NULLE PART dans la requête LLM.
+    import json
+    pii_kind = "dossier medical de Jean Dupont"
+    v = run_llm_request_build(_env(
+        objects=[{"object_key": "k1", "kind": pii_kind}],
+        canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+        analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}],
+    ))
+    assert v["authorized"] is True
+    assert "kind" not in v["llm_request"]["targets"][0]  # champ retiré
+    assert pii_kind not in json.dumps(v["llm_request"], ensure_ascii=False)  # PII absente partout
 
 
 def test_deterministe():

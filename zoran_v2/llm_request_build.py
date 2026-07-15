@@ -7,9 +7,10 @@ autorisation explicite de 05 — contrat RESSOURCE). N'appelle AUCUN LLM (→ 07
 ne génère rien, déterministe, immuable.
 
 RULE-078 (anonymisation) — satisfaite PAR CONSTRUCTION en V1 : la requête ne porte
-que des données STRUCTURELLES (object_key = identifiants, kind, frames, canons,
-operants) et le fingerprint du référentiel — AUCUN contenu utilisateur brut, donc
-aucune PII n'atteint le LLM.
+que des données STRUCTURELLES (identifiant OPAQUE object_public_id, frames, ids de
+canons/opérants) et le fingerprint du référentiel — AUCUN contenu utilisateur brut.
+`kind` N'EST PAS transmis (GC-051-001) : 01 l'accepte libre, il pourrait porter une
+PII ; il est redondant (04 est déjà kind-spécifique). Donc aucune PII n'atteint le LLM.
 """
 from __future__ import annotations
 
@@ -112,12 +113,7 @@ def run_llm_request_build(envelope: dict) -> dict:
 
     cd = envelope["canon_determination"]
     oa = envelope["operants_operes"]
-    od = envelope["object_discovery"]
 
-    kind_by_key = {
-        o.get("object_key"): o.get("kind")
-        for o in (od.get("objects") or []) if isinstance(o, dict)
-    }
     canons_by_pair = {
         (c.get("object_key"), c.get("frame")): list(c.get("canons") or [])
         for c in (cd.get("canons_selected") or []) if isinstance(c, dict)
@@ -136,10 +132,13 @@ def run_llm_request_build(envelope: dict) -> dict:
     distinct_keys = sorted({ok for (ok, _fr) in pairs})
     public_id = {ok: f"OBJ-{i + 1:04d}" for i, ok in enumerate(distinct_keys)}
 
+    # GC-051-001 : `kind` N'EST PAS transmis au LLM. 01 accepte n'importe quelle str non vide comme
+    # kind (f"{kind}\x1f{normalized}" = object_key) : un kind pourrait donc porter une PII admise en
+    # amont. La sélection des canons (04) est DÉJÀ kind-spécifique, donc le kind est redondant dans la
+    # requête ; on le SUPPRIME -> NO_PII_TO_LLM devient vrai (aucun texte utilisateur libre au LLM).
     targets = [
         {
             "object_public_id": public_id[ok],
-            "kind": kind_by_key.get(ok),
             "frame": fr,
             "canons": canons_by_pair[(ok, fr)],
             "operants": operants_by_pair[(ok, fr)],
