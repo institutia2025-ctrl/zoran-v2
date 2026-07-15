@@ -1,0 +1,17 @@
+{
+  "OBJECT_ID": "PR17_ENGINE05",
+  "SHA_AUDITED": "53167acc5238842ebe65b53ba3252ab15435cf4a",
+  "pr": 17,
+  "branch_audited": "fix/baseline-05-coverage-04",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT",
+  "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE)",
+  "created": "2026-07-15T14:53:41+02:00",
+  "note": "Bundle de reaudit du moteur 05. SHA candidat = 53167ac (head reel PR#17). Supersede les SHA anterieurs f041aae/5d7c4a1/4a3e39c/c6da528 (perimes). Session B avait audite c6da528 ; la reconstruction exacte E11 est presente des 53167ac.",
+  "sha_lineage": ["f041aae(005)", "5d7c4a1(006/007/E11v1)", "4a3e39c(verbatim CSB)", "c6da528(E11>=2+prov)", "53167ac(E11 reconstruction exacte)"],
+  "files": [
+    {"name": "audit_baseline_05_FINAL.txt", "sha256": "f788284a6b48a787151f391eed021f9b64866de8314f8dc7847ac22bc342251f", "bytes": 25647},
+    {"name": "INVENTAIRE_DATAFLOW_05.md",   "sha256": "5cf7e64f9931639ac66de8f9300f3f06761023c6abe5c56c327971fd816d5696", "bytes": 6336}
+  ]
+}
