@@ -375,6 +375,9 @@ def test_conflicts_element_non_dict_bloque():
 # --- RÉGRESSION Codex Session B CSB-PROV-P1-004 : couverture 04 vs univers autoritaire 02 ---
 
 _CANONS = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
+# Référentiel multi-canons (conflits = >=2 canons du référentiel gelé, GC-05-P2).
+_CANONS_M = [{"id": i, "priority": 10, "applies_to_frames": ["CODE", "TEXT", "ZZZ"],
+              "applies_to_kinds": ["code", "text"]} for i in ("C", "C2", "C3")]
 
 
 def test_04_omet_une_paire_de_02_bloque():
@@ -545,14 +548,14 @@ def test_05_conflit_hors_univers_bloque():
     from zoran_v2.coherence_engine import CD04
     cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
              conflicts=[{"object_key": "kX", "frame": "ZZZ", "priority": 5, "canons": ["C", "C2"]}],
-             referential_canons=_CANONS)
+             referential_canons=_CANONS_M)
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     assert v["status"] == BLOCKED and v["blocked_by"] == CD04
 
 
 def test_05_conflit_structure_incomplete_bloque():
-    # E11 structure contractuelle : priority int + canons liste non vide de str uniques.
+    # E11 structure contractuelle : priority int + canons liste de >=2 str uniques (contrat 04).
     from zoran_v2.coherence_engine import CD04
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
     for bad_conf in (
@@ -560,13 +563,27 @@ def test_05_conflit_structure_incomplete_bloque():
         {"object_key": "k1", "frame": "CODE", "priority": True, "canons": ["C", "C2"]},  # priority bool
         {"object_key": "k1", "frame": "CODE", "priority": "5", "canons": ["C", "C2"]},   # priority non-int
         {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": []},            # canons vide
+        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C"]},         # <2 canons (GC-05-P2)
         {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C"]},    # canons doublon
-        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": [7]},           # canons non-str
+        {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": [7, 8]},        # canons non-str
     ):
         cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
-                 conflicts=[bad_conf], referential_canons=_CANONS)
+                 conflicts=[bad_conf], referential_canons=_CANONS_M)
         v = run_coherence_engine(_env(cd=cd, oa=oa))
         assert v["status"] == BLOCKED and v["blocked_by"] == CD04, bad_conf
+
+
+def test_05_conflit_canon_hors_referentiel_gele_bloque():
+    # GC-05-P2 (provenance interne des conflits) : un id de canon d'un conflit ABSENT du référentiel
+    # gelé (canon inventé dans le conflit) fausserait la tension -> BLOCKED, même si la paire est valide.
+    from zoran_v2.coherence_engine import CD04
+    # Verbatim ChatGPT : référentiel gelé = {C} seul ; conflit canons=["C","INVENTED"] -> BLOCKED.
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
+             conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "INVENTED"]}],
+             referential_canons=_CANONS)  # référentiel = {C} uniquement
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
 
 
 def test_05_conflit_duplique_a_l_identique_bloque():
@@ -575,7 +592,7 @@ def test_05_conflit_duplique_a_l_identique_bloque():
     from zoran_v2.coherence_engine import CD04
     conf = {"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C2"]}
     cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
-             conflicts=[dict(conf), dict(conf)], referential_canons=_CANONS)
+             conflicts=[dict(conf), dict(conf)], referential_canons=_CANONS_M)
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     assert v["status"] == BLOCKED and v["blocked_by"] == CD04
@@ -583,11 +600,12 @@ def test_05_conflit_duplique_a_l_identique_bloque():
 
 def test_05_conflits_multiples_meme_paire_priorites_distinctes_passent():
     # Non-régression : 04 émet légitimement plusieurs conflits pour la même paire (priorités != ) ;
-    # l'unicité porte sur l'ENTRÉE complète, PAS sur la paire -> ne doit PAS bloquer.
+    # l'unicité porte sur l'ENTRÉE complète, PAS sur la paire -> ne doit PAS bloquer. Canons >=2 et
+    # tous dans le référentiel gelé.
     cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C"]}],
              conflicts=[{"object_key": "k1", "frame": "CODE", "priority": 5, "canons": ["C", "C2"]},
                         {"object_key": "k1", "frame": "CODE", "priority": 3, "canons": ["C", "C3"]}],
-             referential_canons=_CANONS)
+             referential_canons=_CANONS_M)
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     assert v["status"] == PASS and v["coherence"]["conflicts"] == 2
@@ -612,12 +630,14 @@ def test_05_garde_enumerante_preuves_consommees():
         ("operants NONEMPTY", good_cs, None, None, _oa(analysis=[{**K, "operants": []}]), OA03),
         ("operants TYPE", good_cs, None, None, _oa(analysis=[{**K, "operants": [7]}]), OA03),
         ("operants UNIQUE", good_cs, None, None, _oa(analysis=[{**K, "operants": ["OP", "OP"]}]), OA03),
-        ("conflicts PROVENANCE", good_cs, None, [{"object_key": "kZ", "frame": "QQ", "priority": 1, "canons": ["C"]}], good_oa, CD04),
-        ("conflicts UNIQUE", good_cs, None, [{**K, "priority": 1, "canons": ["C"]}, {**K, "priority": 1, "canons": ["C"]}], good_oa, CD04),
-        ("conflicts TYPE(priority)", good_cs, None, [{**K, "priority": "x", "canons": ["C"]}], good_oa, CD04),
+        ("conflicts PROVENANCE(pair)", good_cs, None, [{"object_key": "kZ", "frame": "QQ", "priority": 1, "canons": ["C", "C2"]}], good_oa, CD04),
+        ("conflicts PROVENANCE(canon)", good_cs, None, [{**K, "priority": 1, "canons": ["C", "INVENTED"]}], good_oa, CD04),
+        ("conflicts LEN>=2", good_cs, None, [{**K, "priority": 1, "canons": ["C"]}], good_oa, CD04),
+        ("conflicts UNIQUE", good_cs, None, [{**K, "priority": 1, "canons": ["C", "C2"]}, {**K, "priority": 1, "canons": ["C", "C2"]}], good_oa, CD04),
+        ("conflicts TYPE(priority)", good_cs, None, [{**K, "priority": "x", "canons": ["C", "C2"]}], good_oa, CD04),
         ("pair NONCONTRADICTION", good_cs, [{**K}], None, good_oa, CD04),
     ]
     for label, cs, unc, conf, oa, expected in cases:
-        cd = _cd(canons_selected=cs, uncanonized=unc, conflicts=conf, referential_canons=_CANONS)
+        cd = _cd(canons_selected=cs, uncanonized=unc, conflicts=conf, referential_canons=_CANONS_M)
         v = run_coherence_engine(_env(cd=cd, oa=oa))
         assert v["status"] == BLOCKED and v["blocked_by"] == expected, (label, v.get("blocked_by"))

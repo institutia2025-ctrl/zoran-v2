@@ -288,9 +288,13 @@ def run_coherence_engine(envelope: dict) -> dict:
         ccanons = cf.get("canons")
         if isinstance(prio, bool) or not isinstance(prio, int):
             return _blocked(CD04)
-        if not (isinstance(ccanons, list) and ccanons
+        # GC-05-P2 : un conflit = AU MOINS 2 canons de même priorité (contrat 04 `_conflicts_for`),
+        # str uniques non vides, et TOUS appartenant au référentiel GELÉ (allowed_canon_ids) — sinon
+        # un canon INVENTÉ resterait compté dans la tension et fausserait S (provenance interne).
+        if not (isinstance(ccanons, list) and len(ccanons) >= 2
                 and all(isinstance(x, str) and x for x in ccanons)
-                and len(ccanons) == len(set(ccanons))):
+                and len(ccanons) == len(set(ccanons))
+                and set(ccanons) <= allowed_canon_ids):
             return _blocked(CD04)
         if _pair(cf["object_key"], cf["frame"]) not in universe:
             return _blocked(CD04)
