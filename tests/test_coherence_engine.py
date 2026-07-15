@@ -525,6 +525,20 @@ def test_05_canon_du_referentiel_passe():
     assert v["status"] == PASS
 
 
+def test_05_CSB_canon_id_provenance_contre_exemple_verbatim():
+    # CSB-05-P1-CANON-ID-PROVENANCE (Session B reproduit par Codex Session A) — contre-exemple VERBATIM
+    # (REX #9). référentiel gelé id=C ; canons_selected=["INVENTED_NOT_FROZEN"] -> DOIT BLOQUER en 05
+    # (blocked_by=04_CANON_DETERMINATION) AVANT S/resource, sinon le canon inventé se propage 06->07->client.
+    from zoran_v2.coherence_engine import CD04
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["INVENTED_NOT_FROZEN"]}],
+             referential_canons=_CANONS)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    assert v["status"] == BLOCKED and v["blocked_by"] == CD04
+    # propagation coupée à la frontière 05 : pas de S ni d'autorisation ressource pour 06/07.
+    assert v["coherence"] is None and v["resource"] is None
+
+
 def test_05_conflit_hors_univers_bloque():
     # E11 provenance : un conflit dont la paire n'appartient PAS à l'univers autoritaire (02) fausse
     # la tension (conflit inventé/hors-univers) -> BLOCKED.
