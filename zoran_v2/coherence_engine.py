@@ -131,10 +131,38 @@ def _frozen_referential_wellformed(frozen_canons: list) -> bool:
     KeyError/TypeError. Un record malformé (``{}``, ``[]``, str, ``id`` non-str/vide) -> fail-closed
     au lieu d'un crash (finding audit : 05 crashait sur un référentiel 04 malformé).
     """
+    seen_ids = set()
     for c in frozen_canons:
         if not (isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("id")):
             return False
+        if c["id"] in seen_ids:
+            return False
+        seen_ids.add(c["id"])
+        if isinstance(c.get("priority"), bool) or not isinstance(c.get("priority"), int):
+            return False
+        for field in ("applies_to_frames", "applies_to_kinds"):
+            values = c.get(field)
+            if not (isinstance(values, list)
+                    and all(isinstance(value, str) and value for value in values)
+                    and len(values) == len(set(values))):
+                return False
     return True
+
+
+def _object_kinds(objects):
+    """Map object_key -> kind for a strict object_discovery payload, else None."""
+    if not isinstance(objects, list):
+        return None
+    kinds = {}
+    for obj in objects:
+        if not (isinstance(obj, dict)
+                and isinstance(obj.get("object_key"), str) and obj["object_key"]
+                and isinstance(obj.get("kind"), str) and obj["kind"]):
+            return None
+        if obj["object_key"] in kinds:
+            return None
+        kinds[obj["object_key"]] = obj["kind"]
+    return kinds
 
 
 def _object_frame_pairs(ofm):
@@ -275,6 +303,33 @@ def run_coherence_engine(envelope: dict) -> dict:
         return _blocked(FS02)            # object_frame_map (02) malformé
     if universe != authoritative_pairs:
         return _blocked(CD04)            # couverture 04 incomplète/inventée vs univers autoritaire 02
+
+    # Rebuild the exact 04 selection from authoritative objects, pairs and frozen applicability.
+    # This closes incompatible frame/kind, omission, invention and non-canonical ordering before S.
+    kind_by_object_key = _object_kinds(envelope["object_discovery"].get("objects"))
+    if kind_by_object_key is None:
+        return _blocked(OD01)
+    if any(object_key not in kind_by_object_key for object_key, _frame in authoritative_pairs):
+        return _blocked(CD04)
+
+    expected_selected = {}
+    expected_uncanonized = set()
+    for object_key, frame in authoritative_pairs:
+        kind = kind_by_object_key[object_key]
+        applicable = [canon for canon in frozen_canons
+                      if frame in canon["applies_to_frames"] and kind in canon["applies_to_kinds"]]
+        applicable.sort(key=lambda canon: (-canon["priority"], canon["id"]))
+        if applicable:
+            expected_selected[(object_key, frame)] = tuple(canon["id"] for canon in applicable)
+        else:
+            expected_uncanonized.add((object_key, frame))
+
+    received_selected = {
+        (entry["object_key"], entry["frame"]): tuple(entry["canons"])
+        for entry in canons_selected
+    }
+    if received_selected != expected_selected or uncanon_pairs != expected_uncanonized:
+        return _blocked(CD04)
 
     # E11 — REVALIDATION EXACTE de la preuve de tension (GC-05-P1-E11-CONFLICT-EXACTNESS). `conflicts`
     # alimente tension = len(conflicts)/total_pairs. 05 ne valide PAS les conflits isolément (gardes

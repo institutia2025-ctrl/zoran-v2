@@ -62,7 +62,8 @@ def _oa(analysis=None):
     return {"status": PASS, "analysis": analysis or [], "unanalyzed": []}
 
 
-def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st="PASS", ofm=None):
+def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st="PASS", ofm=None,
+         objects=None):
     cdn = cd if cd is not None else _cd()
     oan = oa if oa is not None else _oa()
     cdn = {**cdn, "status": cd_st}
@@ -76,9 +77,13 @@ def _env(cd=None, oa=None, rc="PASS", od="PASS", fs="PASS", oa_st="PASS", cd_st=
             if isinstance(c, dict) and isinstance(c.get("object_key"), str) and isinstance(c.get("frame"), str):
                 _pairs.setdefault(c["object_key"], set()).add(c["frame"])
         ofm = [{"object_key": k, "frames": sorted(v)} for k, v in sorted(_pairs.items())]
+    if objects is None:
+        objects = [{"object_key": entry["object_key"], "kind": "code"}
+                   for entry in ofm if isinstance(entry, dict)
+                   and isinstance(entry.get("object_key"), str)]
     return {
         "runtime_check": {"status": rc},
-        "object_discovery": {"status": od},
+        "object_discovery": {"status": od, "objects": objects},
         "frame_selection": {"status": fs, "object_frame_map": ofm},
         "operants_operes": oan,
         "canon_determination": cdn,
@@ -131,7 +136,10 @@ def test_delta_phi_partiel_et_veto_ressource():
         uncanonized=[{"object_key": "k2", "frame": "TEXT"}],
     )
     oa = _oa(analysis=[])  # aucun opérant
-    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    v = run_coherence_engine(_env(
+        cd=cd, oa=oa,
+        objects=[{"object_key": "k1", "kind": "code"}, {"object_key": "k2", "kind": "other"}],
+    ))
     c = v["coherence"]
     assert c["total_pairs"] == 2 and c["resolved_pairs"] == 0
     assert c["delta_phi"] == 0.0
@@ -171,15 +179,24 @@ def test_tension_compte_les_conflits():
 
 def test_sigma_dispersion_entre_objets():
     # k1 a 2 canons, k2 a 0 canon distinct dans canons_selected (non listé) -> mais σ sur objets listés
+    canons = [
+        {"id": "A", "priority": 10, "applies_to_frames": ["CODE"],
+         "applies_to_kinds": ["code", "text"]},
+        {"id": "B", "priority": 11, "applies_to_frames": ["CODE"],
+         "applies_to_kinds": ["code"]},
+    ]
     cd = _cd(canons_selected=[
-        {"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]},
+        {"object_key": "k1", "frame": "CODE", "canons": ["B", "A"]},
         {"object_key": "k2", "frame": "CODE", "canons": ["A"]},
-    ])
+    ], referential_canons=canons)
     oa = _oa(analysis=[
         {"object_key": "k1", "frame": "CODE", "operants": ["OP_X"], "operes": ["k1"]},
         {"object_key": "k2", "frame": "CODE", "operants": ["OP_X"], "operes": ["k2"]},
     ])
-    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    v = run_coherence_engine(_env(
+        cd=cd, oa=oa,
+        objects=[{"object_key": "k1", "kind": "code"}, {"object_key": "k2", "kind": "text"}],
+    ))
     # counts = [2,1] -> mean 1.5, pstdev 0.5 -> CV = 0.333333
     assert v["coherence"]["sigma"] == round(0.5 / 1.5, 6)
 
@@ -291,7 +308,10 @@ def test_sigma_inclut_objets_zero_canon():
         uncanonized=[{"object_key": "k2", "frame": "TEXT"}],
     )
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["O"]}])
-    v = run_coherence_engine(_env(cd=cd, oa=oa))
+    v = run_coherence_engine(_env(
+        cd=cd, oa=oa,
+        objects=[{"object_key": "k1", "kind": "code"}, {"object_key": "k2", "kind": "other"}],
+    ))
     # counts = [1, 0] (k1=1 canon, k2=0) -> mean .5, pstdev .5 -> CV = 1.0 (avant fix : 0.0)
     assert v["coherence"]["sigma"] == 1.0
 
@@ -538,6 +558,70 @@ def test_05_canon_du_referentiel_passe():
     oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
     v = run_coherence_engine(_env(cd=cd, oa=oa))
     assert v["status"] == PASS
+
+
+def test_05_canon_gele_inapplicable_au_frame_et_kind_bloque():
+    """GC-05-P1-CANON-APPLICABILITY-PROVENANCE : reproduit le contre-exemple exact."""
+    from zoran_v2.coherence_engine import CD04
+
+    c_text = [{
+        "id": "C_TEXT",
+        "priority": 10,
+        "applies_to_frames": ["TEXT"],
+        "applies_to_kinds": ["text"],
+    }]
+    cd = _cd(
+        canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["C_TEXT"]}],
+        referential_canons=c_text,
+    )
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    envelope = _env(cd=cd, oa=oa)
+    envelope["object_discovery"]["objects"] = [{"object_key": "k1", "kind": "code"}]
+
+    verdict = run_coherence_engine(envelope)
+
+    assert verdict["status"] == BLOCKED
+    assert verdict["blocked_by"] == CD04
+
+
+def test_05_canons_applicables_exacts_passent():
+    canons = [
+        {"id": "A", "priority": 20, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
+        {"id": "B", "priority": 10, "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
+    ]
+    cd = _cd(canons_selected=[{"object_key": "k1", "frame": "CODE", "canons": ["A", "B"]}],
+             referential_canons=canons)
+    oa = _oa(analysis=[{"object_key": "k1", "frame": "CODE", "operants": ["OP"]}])
+    verdict = run_coherence_engine(_env(cd=cd, oa=oa, objects=[{"object_key": "k1", "kind": "code"}]))
+    assert verdict["status"] == PASS
+
+
+def test_05_aucun_canon_applicable_exige_uncanonized_exact():
+    c_text = [{"id": "C_TEXT", "priority": 10, "applies_to_frames": ["TEXT"],
+               "applies_to_kinds": ["text"]}]
+    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}], referential_canons=c_text)
+    verdict = run_coherence_engine(_env(cd=cd, objects=[{"object_key": "k1", "kind": "code"}]))
+    assert verdict["status"] == PASS
+
+
+def test_05_canon_applicable_omis_bloque():
+    from zoran_v2.coherence_engine import CD04
+    canons = [{"id": "C", "priority": 10, "applies_to_frames": ["CODE"],
+               "applies_to_kinds": ["code"]}]
+    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}], referential_canons=canons)
+    verdict = run_coherence_engine(_env(cd=cd, objects=[{"object_key": "k1", "kind": "code"}]))
+    assert verdict["status"] == BLOCKED and verdict["blocked_by"] == CD04
+
+
+def test_05_object_discovery_objects_malforme_bloque():
+    from zoran_v2.coherence_engine import OD01
+    cd = _cd(uncanonized=[{"object_key": "k1", "frame": "CODE"}])
+    bad_payloads = ({}, [{"object_key": "k1"}],
+                    [{"object_key": "k1", "kind": "code"},
+                     {"object_key": "k1", "kind": "text"}])
+    for objects in bad_payloads:
+        verdict = run_coherence_engine(_env(cd=cd, objects=objects))
+        assert verdict["status"] == BLOCKED and verdict["blocked_by"] == OD01
 
 
 def test_05_CSB_canon_id_provenance_contre_exemple_verbatim():
