@@ -152,7 +152,10 @@ def run_object_discovery(envelope: dict) -> dict:
             _drop(i, cand, "provenance_unverified")
             continue
 
-        key = f"{kind.strip()}{_SEP}{normalized}"
+        # CSB-META-P1-003 : le `kind` fait partie de l'identite (object_key) -> il doit AUSSI etre
+        # normalise Unicode NFC (sinon deux kinds canoniquement equivalents = deux object_key).
+        kind_n = unicodedata.normalize("NFC", kind.strip())
+        key = f"{kind_n}{_SEP}{normalized}"
         off = prov.get("in_text", {}).get("offset") if "in_text" in prov else None
         if key in by_key:
             by_key[key]["provenance"].append(prov)
@@ -160,7 +163,7 @@ def run_object_discovery(envelope: dict) -> dict:
                 by_key[key]["order"] = off
         else:
             by_key[key] = {
-                "object_key": key, "kind": kind.strip(),
+                "object_key": key, "kind": kind_n,
                 "normalized": normalized, "provenance": [prov], "order": off,
             }
 

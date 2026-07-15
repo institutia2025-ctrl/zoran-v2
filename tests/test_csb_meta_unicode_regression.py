@@ -62,3 +62,15 @@ def test_nfc_ne_fusionne_pas_les_compatibilites_nfkc():
         {"kind": "term", "value": "2", "provenance": {"structured": True}},
     ]))
     assert v["count"] == 2
+
+
+def test_kind_unicode_equivalence_dedup():
+    # CSB-META-P1-003 : le `kind` fait partie de l'object_key -> deux kinds canoniquement
+    # equivalents (precompose vs decompose) doivent produire le MEME object_key (dedup).
+    v = run_object_discovery(_env([
+        {"kind": PRECOMPOSEE, "value": "x", "provenance": {"structured": True}},
+        {"kind": DECOMPOSEE, "value": "x", "provenance": {"structured": True}},
+    ]))
+    assert v["status"] == "PASS"
+    assert v["count"] == 1
+    assert v["objects"][0]["kind"] == unicodedata.normalize("NFC", v["objects"][0]["kind"])
