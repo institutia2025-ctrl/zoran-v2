@@ -40,13 +40,19 @@ def _ids(v):
 def _env(objects=None, ofm=None, rc="PASS", od="PASS", fs="PASS", oa="PASS"):
     # 03 fournit un VRAI résultat (contrat complet) : 04 revalide désormais le payload 03, pas
     # seulement son status (CSB-03-04-P1-001). `oa` fixe le status pour les tests fail-closed.
+    # 03 fournit un VRAI resultat COHERENT avec 01/02 : chaque couple (object_key, frame) de 02
+    # est classifie (ici en unanalyzed, le contenu operant n'etant pas consomme par 04). 04 revalide
+    # desormais la structure ET la provenance du payload 03 (CSB-03-04-P1-001 / GC-PR16-001).
+    _ofm = ofm or []
     return {
         "runtime_check": {"status": rc},
         "object_discovery": {"status": od, "objects": objects or []},
-        "frame_selection": {"status": fs, "object_frame_map": ofm or []},
+        "frame_selection": {"status": fs, "object_frame_map": _ofm},
         "operants_operes": {"component": "03_OPERANTS_OPERES_ANALYSIS", "version": "1.0.0",
                             "status": oa, "blocked_by": None, "analysis": [],
-                            "unanalyzed": [], "order_key": "x"},
+                            "unanalyzed": [{"frame": f, "object_key": e["object_key"]}
+                                           for e in _ofm for f in e["frames"]],
+                            "order_key": "object_frame_map_order_puis_operant_id_alphabetique"},
     }
 
 

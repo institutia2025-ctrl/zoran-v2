@@ -130,6 +130,58 @@ def test_04_blocks_03_extra_key():
     env = copy.deepcopy(ENVELOPE_001)
     env["operants_operes"] = {"component": "03_OPERANTS_OPERES_ANALYSIS", "version": "1.0.0",
                               "status": "PASS", "blocked_by": None, "analysis": [],
-                              "unanalyzed": [], "order_key": "x", "EXTRA": 1}
+                              "unanalyzed": [{"frame": "CODE", "object_key": "k"}],
+                              "order_key": "object_frame_map_order_puis_operant_id_alphabetique",
+                              "EXTRA": 1}
     v = run_canon_determination(env, CANON_REGISTRY)
+    assert v["status"] == "BLOCKED" and v["blocked_by"] == "03_OPERANTS_OPERES_ANALYSIS"
+
+
+# ---- GC-PR16-001 : validation contractuelle COMPLETE du payload 03 (ChatGPT) ----
+
+_OA_ORDER = "object_frame_map_order_puis_operant_id_alphabetique"
+
+
+def _env_04_03(oa_node):
+    # objets/carte valides (1 couple (k, CODE)) ; noeud 03 personnalisable.
+    return {"runtime_check": {"status": "PASS"},
+            "object_discovery": {"status": "PASS", "objects": [{"object_key": "k", "kind": "code"}]},
+            "frame_selection": {"status": "PASS",
+                                "object_frame_map": [{"object_key": "k", "frames": ["CODE"]}]},
+            "operants_operes": oa_node}
+
+
+def _oa(**over):
+    node = {"component": "03_OPERANTS_OPERES_ANALYSIS", "version": "1.0.0", "status": "PASS",
+            "blocked_by": None, "analysis": [], "order_key": _OA_ORDER,
+            "unanalyzed": [{"frame": "CODE", "object_key": "k"}]}
+    node.update(over)
+    return node
+
+
+def test_04_accepte_payload_03_coherent_analysis():
+    # cas positif : entrée analysis bien formée qui couvre exactement le couple de 02 -> PASS.
+    oa = _oa(analysis=[{"frame": "CODE", "object_key": "k", "operants": ["OP"], "operes": ["k"]}],
+             unanalyzed=[])
+    v = run_canon_determination(_env_04_03(oa), CANON_REGISTRY)
+    assert v["status"] == "PASS"
+
+
+@pytest.mark.parametrize("oa_node", [
+    _oa(analysis=[{}]),                                                   # entrée analysis vide
+    _oa(unanalyzed=[None]),                                               # entrée unanalyzed non-dict
+    _oa(version="9.9.9"),                                                 # mauvaise version
+    _oa(order_key="n'importe quoi"),                                      # faux order_key
+    _oa(analysis=[{"frame": "CODE", "object_key": "k", "operants": [42], "operes": ["k"]}],
+        unanalyzed=[]),                                                   # opérant non textuel
+    _oa(analysis=[{"frame": "CODE", "object_key": "k", "operants": [], "operes": ["AUTRE"]}],
+        unanalyzed=[]),                                                   # operes != [object_key]
+    _oa(unanalyzed=[{"frame": "FRONTEND", "object_key": "k"}]),           # couple inventé (absent de 02)
+    _oa(analysis=[{"frame": "CODE", "object_key": "ZZZ", "operants": [], "operes": ["ZZZ"]}],
+        unanalyzed=[]),                                                   # object_key absent de 01
+    _oa(analysis=[], unanalyzed=[]),                                      # couple attendu manquant (couverture)
+    _oa(analysis=[{"frame": "CODE", "object_key": "k", "operants": [], "operes": ["k"]}]),  # couple dans analysis ET unanalyzed
+])
+def test_04_bloque_payload_03_non_contractuel(oa_node):
+    v = run_canon_determination(_env_04_03(oa_node), CANON_REGISTRY)
     assert v["status"] == "BLOCKED" and v["blocked_by"] == "03_OPERANTS_OPERES_ANALYSIS"
