@@ -20,10 +20,21 @@ Ce document est la feuille de route canonique de construction du pipeline de rai
 → 10_RESERVED_BY_CANONICAL_CONTRACT
 → 11_TRACE_AND_CLOSE
 → 12_COHERENT_EVOLUTION
+→ 13_HISTORICAL_DIFFERENTIAL_INFERENCE
+→ 14_EXTERNAL_EVIDENCE_AND_FALSIFICATION
 → EXTERNAL_INDEPENDENT_CERTIFICATION_BY_CLAUDE
 ```
 
 Les noms et contrats détaillés de 09 et 10 restent à matérialiser avant leur construction. Aucun agent ne doit les inventer.
+
+## Documents contractuels
+
+- `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md`
+- `specs/CONTRACT_ENGINE_13_HISTORICAL_DIFFERENTIAL_INFERENCE.md`
+- `specs/CONTRACT_ENGINE_14_EXTERNAL_EVIDENCE_AND_FALSIFICATION.md`
+- `specs/ZORAN_REASONING_ENGINE_CONSTRUCTION_PLAN_ENGINE_14_ADDENDUM.md`
+
+L'addendum ENGINE-14 fait partie du présent plan et porte la description détaillée de l'extension `00→14`.
 
 ## ENGINE-12 — 12_COHERENT_EVOLUTION
 
@@ -42,53 +53,23 @@ Transformer toute erreur confirmée en apprentissage systémique persistant :
 
 ### Position
 
-ENGINE-12 est le dernier moteur du plan de raisonnement V2. Il intervient après `11_TRACE_AND_CLOSE`.
+ENGINE-12 intervient après `11_TRACE_AND_CLOSE` et avant `13_HISTORICAL_DIFFERENTIAL_INFERENCE`.
 
 ### Prérequis absolus
 
 - moteurs `00→11` construits ;
 - gate d'intégration global `00→11` PASS ;
-- contrat `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md` validé extérieurement ;
+- contrat ENGINE-12 validé extérieurement ;
 - aucune auto-certification de ZORAN ;
 - aucun code ENGINE-12 avant ces conditions.
 
 ### Principe scientifique V1
 
-Aucune équation de cohérence évolutive ne devient canonique tant que chacune de ses variables n'est pas calculable par un tiers à partir de données figées et de règles versionnées.
-
-Le verrou principal est l'identifiabilité de l'applicabilité :
-
 ```text
 a_e(x ; v_e) -> {0,1}
-```
-
-avec :
-
-- `x` : cas observé ;
-- `e` : classe d'erreur canonisée ;
-- `v_e` : version figée de la règle d'applicabilité ;
-- `a_e` : fonction déterministe qui ne lit ni le verdict final, ni le finding à prédire.
-
-La récurrence est définie par :
-
-```text
 r_e(x) -> {0,1}
-```
-
-`r_e(x)=1` si la décision déjà invalidée est reproduite sur un cas applicable.
-
-### Taux de récurrence observable
-
-V1 exclut les poids libres et toute pénalité paramétrique non calibrée :
-
-```text
 rho = [sum_e,x a_e(x;v_e) * r_e(x)] / [sum_e,x a_e(x;v_e)]
-```
-
-Bornes :
-
-```text
-0 <= rho <= 1
+S_evo = S * (1 - rho)
 ```
 
 Si aucun cas applicable n'est observable :
@@ -97,112 +78,123 @@ Si aucun cas applicable n'est observable :
 INDETERMINATE_NO_APPLICABLE_REPLAY
 ```
 
-Il est interdit de fixer artificiellement `rho=0`.
+Une récurrence applicable P0 ou P1 déclenche `BLOCKED`.
 
-### Équation V1 candidate
+ENGINE-12 ne remplace pas les audits externes. Il produit des mesures, guards et propositions d'évolution ; Fred reste l'autorité de GO.
 
-```text
-S_evo = S * (1 - rho)
-```
+## ENGINE-13 — 13_HISTORICAL_DIFFERENTIAL_INFERENCE
 
-soit :
+### Fonction
 
-```text
-S_evo = [beta * delta_phi * (1 - rho)] / [1 + T + sigma]
-```
+Produire une réponse différentielle historiquement augmentée. ENGINE-13 identifie un cadre historique autoritaire comparable, vérifie les invariants, calcule le delta du cadre présent, réutilise uniquement les conclusions encore valides et raisonne seulement sur ce qui a changé.
 
-Cette forme :
-
-- conserve la formule canonique de cohérence ;
-- n'applique qu'une seule pénalité de récurrence ;
-- n'introduit ni `lambda`, ni exposant libre, ni pondération arbitraire en V1 ;
-- retrouve `S` si `rho=0` ;
-- donne `0` si `rho=1`.
-
-Les variantes à double pénalité, les poids `w_e`, `lambda` et les formes `(1-rho)^k` restent au backlog expérimental V2 jusqu'à calibration externe.
-
-### Veto critique
-
-Une moyenne ne peut jamais compenser une récurrence critique :
+### Formule canonique ASCII
 
 ```text
-si existe e de sévérité P0 ou P1 et x tel que a_e(x)=1 et r_e(x)=1
-alors BLOCKED
+R_t = R_previous_valid + F(delta_C) - I(delta_C)
+delta_C = (A_plus, A_minus, A_modified, X_contradictions)
 ```
 
-### Conditions d'identifiabilité avant code
+- `A_plus` : éléments ajoutés ;
+- `A_minus` : éléments supprimés ;
+- `A_modified` : éléments modifiés ;
+- `X_contradictions` : contradictions nouvelles ;
+- `F` : opérateur d'augmentation ;
+- `I` : opérateur d'invalidation.
 
-ENGINE-12 ne pourra être implémenté que si les éléments suivants existent :
-
-1. fonctions `applicable(case, rule) -> bool` versionnées ;
-2. classes d'erreurs munies de conditions et exclusions exécutables ;
-3. dataset de replay figé avec cas positifs et négatifs ;
-4. vérité de référence indépendante ;
-5. mesures de précision, rappel, accord et stabilité entre versions ;
-6. prédiction falsifiable reliant `rho` à un comportement observable ;
-7. protection anti-Goodhart : la définition d'applicabilité ne peut pas être resserrée rétroactivement pour améliorer le score.
-
-### Stabilité temporelle
-
-Lorsque plusieurs fenêtres comparables sont disponibles, ENGINE-12 pourra exposer :
+### Verdicts
 
 ```text
-mean_rho_W
-var_rho_W
+HISTORICAL_REPLAY_NO_DELTA
+HISTORICAL_FRAME_AUGMENTED
+HISTORICAL_FRAME_BREAK
+HISTORICAL_SURFACE_SIMILARITY
+HISTORICAL_INDETERMINATE
+BLOCKED
 ```
 
-Ces mesures restent descriptives tant que la taille de fenêtre, les corpus et les règles d'applicabilité ne sont pas figés. Une baisse de `rho` accompagnée d'une variance élevée ne prouve pas une évolution stable.
+### Architecture
 
-### Condition de non-récurrence
+- index sémantique ou vectoriel pour proposer des candidats uniquement ;
+- graphe ou magasin d'objets comme source autoritaire ;
+- journal chronologique immuable ;
+- validation déterministe des invariants, de la provenance et du delta.
+
+Aucun score de similarité n'a de pouvoir de verdict.
+
+### Prérequis
+
+- moteurs `00→12` construits et certifiés ;
+- gate global `00→12` PASS ;
+- contrat ENGINE-13 validé extérieurement ;
+- schémas historiques et politiques d'invariants figés ;
+- dataset indépendant ;
+- aucun code avant GO explicite de Fred.
+
+## ENGINE-14 — 14_EXTERNAL_EVIDENCE_AND_FALSIFICATION
+
+### Fonction
+
+Quand ENGINE-13 identifie un delta matériel que le corpus interne ne permet pas de trancher, ENGINE-14 déclenche automatiquement une recherche externe, collecte des preuves favorables et défavorables et tente activement de falsifier les hypothèses concurrentes.
+
+L'utilisateur n'a pas à demander séparément la recherche Internet. La recherche externe ordinaire est automatique par défaut.
+
+### Déclenchement
 
 ```text
-Pour toute classe d'erreur canonique e et tout cas futur x :
-a_e(x;v_e)=1 implique r_e(x)=0.
+historical_frame_identified = true
+delta_C_non_empty = true
+internal_authoritative_evidence_sufficient = false
+delta_material_for_answer = true
+→ external_search_automatic = true
 ```
 
-### Règle de construction
+### Chaîne
 
-ENGINE-12 ne remplace pas les audits externes. Il produit des mesures, guards et propositions d'évolution ; Fred reste l'autorité de GO et les certificateurs externes restent obligatoires.
+```text
+hypothèses
+→ critères de réfutation définis avant recherche
+→ recherche externe automatique
+→ qualification des sources
+→ preuves favorables
+→ contre-preuves
+→ tentative de falsification
+→ verdict borné
+→ quarantaine avant toute proposition canonique
+```
+
+### Principe
+
+Une recherche confirmatoire seule est interdite. L'automatisation de la recherche ne vaut jamais automatisation de la certitude.
+
+### Intégration au corpus
+
+```text
+EXTERNAL_CANDIDATE
+→ PROVENANCE_VERIFIED
+→ FALSIFICATION_ATTEMPTED
+→ QUARANTINE
+→ REPLAY
+→ EXTERNAL_AUDIT
+→ CANON_PROPOSAL
+```
+
+### Prérequis
+
+- moteurs `00→13` construits et certifiés ;
+- gate global `00→13` PASS ;
+- contrat ENGINE-14 validé extérieurement ;
+- politiques de sources et de falsification versionnées ;
+- corpus de tests externes figé ;
+- aucun code avant GO explicite de Fred.
 
 ## Certification indépendante finale par Claude
 
-Après construction, intégration et certification interne de tous les moteurs `00→12`, un paquet autonome, figé et indépendant de GitHub doit être soumis à **Claude Assistant** pour un audit externe final.
+Après construction, intégration et certification interne de tous les moteurs `00→14`, un paquet autonome, figé et indépendant de GitHub doit être soumis à Claude Assistant pour un audit externe final.
 
-### Paquet requis
+Claude reçoit d'abord un paquet aveugle. Il rend un verdict indépendant avant d'accéder aux verdicts détaillés de ChatGPT et des sessions Codex.
 
-Le paquet contient au minimum :
-
-- `AGENTS.md` ;
-- plan canonique `00→12` ;
-- contrats de tous les moteurs ;
-- code source exact lié à un SHA figé ;
-- tests et résultats CI ;
-- traces runtime et benchmarks ;
-- manifest et hashes ;
-- preuves brutes ;
-- findings historiques séparés du corpus aveugle.
-
-### Protocole d'indépendance
-
-Claude reçoit d'abord uniquement le paquet aveugle : contrats, code, tests, preuves et SHA. Il rend un premier verdict indépendant avant d'accéder aux verdicts détaillés de ChatGPT, Codex Session A et Codex Session B.
-
-Puis :
-
-```text
-AUDIT_CLAUDE_PRELIMINAIRE
-→ ouverture des verdicts historiques
-→ analyse des divergences
-→ AUDIT_CLAUDE_CONVERGENCE
-```
-
-### Autorité et limites
-
-- Claude ne modifie pas le produit pendant cet audit ;
-- Claude ne remplace pas les certificateurs internes ;
-- un PASS Claude ne compense jamais un FAIL interne ;
-- un FAIL Claude déclenche investigation et reproduction ;
-- aucune certification finale ZORAN V2 sans traitement explicite des divergences ;
-- Fred reste seul autorisé à déclarer la certification finale et à promouvoir la baseline.
+Un PASS Claude ne compense jamais un FAIL interne. Fred reste seul autorisé à déclarer la certification finale et à promouvoir la baseline.
 
 ## Gouvernance
 
@@ -212,4 +204,5 @@ AUDIT_CLAUDE_PRELIMINAIRE
 - Une amélioration locale est interdite si `delta_S_global < 0`.
 - Toute erreur confirmée doit enrichir la règle de non-récurrence cohérente.
 - Aucune formule n'est canonique sur la seule base de sa cohérence algébrique.
-- Après certification interne de `00→12`, la certification indépendante finale par Claude est obligatoire avant promotion finale de ZORAN V2.
+- ENGINE-13 et ENGINE-14 restent `SPEC_ONLY` tant que leurs prérequis ne sont pas satisfaits.
+- Après certification interne de `00→14`, la certification indépendante finale par Claude est obligatoire avant promotion finale de ZORAN V2.
