@@ -185,3 +185,13 @@ def test_04_accepte_payload_03_coherent_analysis():
 def test_04_bloque_payload_03_non_contractuel(oa_node):
     v = run_canon_determination(_env_04_03(oa_node), CANON_REGISTRY)
     assert v["status"] == "BLOCKED" and v["blocked_by"] == "03_OPERANTS_OPERES_ANALYSIS"
+
+
+def test_04_bloque_contre_exemple_exact_chatgpt_gc_pr16_001():
+    # Contre-exemple VERBATIM de ChatGPT (GC-PR16-001) : version fausse + analysis/unanalyzed
+    # non contractuels + faux order_key. Doit BLOQUER (ne plus traverser la frontiere 03->04).
+    oa = {"component": "03_OPERANTS_OPERES_ANALYSIS", "version": "FAUSSE", "status": "PASS",
+          "blocked_by": None, "analysis": [{"garbage": 1}], "unanalyzed": [42],
+          "order_key": "inventée"}
+    v = run_canon_determination(_env_04_03(oa), CANON_REGISTRY)
+    assert v["status"] == "BLOCKED" and v["blocked_by"] == "03_OPERANTS_OPERES_ANALYSIS"
