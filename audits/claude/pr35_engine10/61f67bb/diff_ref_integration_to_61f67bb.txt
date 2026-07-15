@@ -1,0 +1,693 @@
+diff --git a/ACTIONS_CATALOG.yaml b/ACTIONS_CATALOG.yaml
+new file mode 100644
+index 0000000..e93eef0
+--- /dev/null
++++ b/ACTIONS_CATALOG.yaml
+@@ -0,0 +1,22 @@
++# Catalogue déclaratif VERSIONNÉ des actions autorisées (allowlist gelée) — ENGINE-10.
++# 10 ne peut proposer QUE des actions listées ici (CATALOG_ONLY, NO_ACTION_INVENTION).
++# Chaque action : id (str unique) ; requires_action (bool) ; sensitive_mutation (bool) ;
++# permissions_required (liste de str). `catalog_fingerprint` est recalculé par 10 (sha256 canonique).
++version: "1.0.0"
++actions:
++  - id: ACTION_NONE
++    requires_action: false
++    sensitive_mutation: false
++    permissions_required: []
++  - id: ACTION_ANNOTATE
++    requires_action: true
++    sensitive_mutation: false
++    permissions_required: []
++  - id: ACTION_REPORT
++    requires_action: true
++    sensitive_mutation: false
++    permissions_required: [PERM_REPORT]
++  - id: ACTION_APPLY_PATCH
++    requires_action: true
++    sensitive_mutation: true
++    permissions_required: [PERM_WRITE]
+diff --git a/CANONICAL_SOURCES.yaml b/CANONICAL_SOURCES.yaml
+index 31875e5..8961f8d 100644
+--- a/CANONICAL_SOURCES.yaml
++++ b/CANONICAL_SOURCES.yaml
+@@ -22,3 +22,5 @@ sources:
+     title: Porte 8 — 2e passe de cohérence post-LLM (valide 07.response vs référentiel gelé, verdict d'admissibilité gate 09)
+   - id: SPEC_ENGINE_09_STRUCTURED_DECISION
+     title: Porte 9 — décision structurée déterministe à partir d'une réponse admise par 08 (sans génération)
++  - id: SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN
++    title: Porte 10 — admissibilité d'action (catalogue gelé) + plan borné déterministe, sans exécution
+diff --git a/specs/SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN.md b/specs/SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN.md
+new file mode 100644
+index 0000000..e961f4c
+--- /dev/null
++++ b/specs/SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN.md
+@@ -0,0 +1,51 @@
++# SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN (FIGÉ — Fred 2026-07-15)
++
++Porte 10. Position : `09_STRUCTURED_DECISION → 10_ACTION_ADMISSIBILITY_AND_PLAN → exécuteur externe (GO humain) → 11_TRACE_AND_CLOSE`.
++
++## Fonction
++Évaluer si la décision structurée de 09 peut devenir une action, puis produire un plan BORNÉ et vérifiable.
++**AUCUNE exécution.** Ne déduit AUCUNE action implicite ; l'action est explicitement demandée (action_request)
++et doit appartenir au catalogue gelé. Aucune invention, aucune mutation.
++
++## Invariants
++`NO_LLM` · `NO_NETWORK` · `NO_ACTION_EXECUTION` · `NO_ACTION_INVENTION` · `CATALOG_ONLY` ·
++`GLOBAL_IMPACT_BEFORE_PLAN` · `FAIL_CLOSED` · `DETERMINISTIC` · `IMMUTABLE` · `HUMAN_GO_REQUIRED_FOR_SENSITIVE_MUTATION`
++· `ANTI_LEAK` (récursif) · `EXACT_STRING_PRESERVATION` · `NON_SCALAR_UNICODE_BLOCKED` · `CANONICAL_PRIMITIVE_REUSED`
++· `OBJECT_FIRST_CONTENT_SHA256` · `ACTION_PLAN_ID_COVERS_COMPLETE_CONTEXT` · `NO_HIDDEN_READ_IN_PURE_FN`.
++
++## Entrées autoritaires (revalidées 4 niveaux ; catalogue+permissions INJECTÉS, aucune lecture cachée)
++- **09** (`envelope["structured_decision"]`) : objet-décision plat, `status==PASS`, `decision_id` valide,
++  **intégrité** : recompute `CONTENT_SHA256(objet 09 SANS CONTENT_SHA256) == 09.CONTENT_SHA256` (décision non altérée), complète.
++- **action_request** (`envelope["action_request"]`) : `{action_id, target_refs}` (P-10-1, explicite). target_refs ⊆ cibles de 09.
++- **catalogue** (argument injecté, ACTIONS_CATALOG.yaml gelé) : `{version, actions:[{id, requires_action, sensitive_mutation, permissions_required}]}` ; ids uniques ; `catalog_fingerprint` recalculé.
++- **permissions** (argument injecté, versionné) : `{version, granted:[...]}`.
++- **impact_context** (`envelope["impact_context"]`) : `{assessed_target_refs, global_impact}`.
++
++## Gate d'entrée (fail-closed → status=BLOCKED)
++`09.status==PASS` (et 00→09 PASS) · `decision_id` valide · `CONTENT_SHA256` 09 recalculé == · décision complète/non altérée ·
++`action_request` bien formé · action_id ∈ catalogue (sinon BLOCKED, jamais d'invention) · catalogue versionné valide ·
++permissions structure valide · target_refs ⊆ cibles 09 · anti-fuite · anti-surrogate.
++
++## Sorties (action_status, status=PASS)
++- `ACTION_NOT_REQUIRED` : action catalogue `requires_action=false`.
++- `ACTION_BLOCKED` : permissions VALIDES mais refus explicite (`permissions_required ⊄ granted`).
++- `ACTION_QUARANTINED` : impact global INCOMPLET (assessed_target_refs ne couvre pas les cibles) → pas de plan.
++- `ACTION_PLAN_READY` : action admissible, permissions OK, impact global complet, NON sensible → plan borné + rollback.
++- `HUMAN_APPROVAL_REQUIRED` : `sensitive_mutation=true` → approval_required=true, approval_scope, AUCUN plan_ready sans GO humain.
++`status=BLOCKED` (fail-closed) est distinct de ces verdicts. P-10-4 : permissions absentes/malformées → BLOCKED ; refus valide → ACTION_BLOCKED.
++
++## Sortie (objet PLAT, P-10-3) — 19 champs
++`component, version, status, blocked_by, action_plan_id, action_status, decision_id, action_id, target_refs,
++prerequisites, permissions_required, risks, global_impact, rollback_plan, approval_required, approval_scope,
++justification_refs, CONTENT_SHA256, order_key`. (blocked_by = "<code 10 dédié>@<frontière source>".)
++
++## action_plan_id + CONTENT_SHA256 (P-10-6)
++- `action_plan_id = "ACTION-PLAN-" + _canonical_sha256(payload canonique COMPLET)`, réutilise `_fingerprint` (aucun 2ᵉ hasher ; 04 intact).
++- Payload complet (contexte, sans self-ref) : `decision_id, CONTENT_SHA256 de 09, action_id, target_refs, catalog_version,
++  catalog_fingerprint, permissions, prerequisites, risks, global_impact, rollback_plan, approval_scope`.
++- `CONTENT_SHA256` = hash SÉPARÉ de l'objet final SANS CONTENT_SHA256. Aucune auto-référence.
++- Garde surrogate (U+D800–U+DFFF) sur le payload AVANT hash → BLOCKED(NON_SCALAR_UNICODE) ; unicode scalaire préservé (aucun NFC/NFD/trim/CRLF).
++
++## NON-goals
++exécution · invention hors catalogue · génération/LLM · réseau · mutation référentiel/catalogue · re-jugement 09 ·
++PLAN_READY sans impact global · PLAN_READY sensible sans approbation humaine · lecture cachée dans la fonction pure.
+diff --git a/tests/test_action_admissibility_and_plan.py b/tests/test_action_admissibility_and_plan.py
+new file mode 100644
+index 0000000..0eff58a
+--- /dev/null
++++ b/tests/test_action_admissibility_and_plan.py
+@@ -0,0 +1,256 @@
++"""Tests déterministes de 10_ACTION_ADMISSIBILITY_AND_PLAN (envelope 00→09 + catalogue + permissions injectés).
++
++Vérifie : gate 00→09, INTÉGRITÉ 09 (CONTENT_SHA256 recalculé), action_request explicite ⊆ catalogue gelé,
++permissions, impact global avant plan, 5 verdicts, mutation sensible → HUMAN_APPROVAL_REQUIRED, anti-fuite/surrogate,
++action_plan_id (contexte complet, via _fingerprint) + CONTENT_SHA256, objet plat 19 clés, fail-closed.
++"""
++import copy
++
++import pytest
++
++from zoran_v2.structured_decision import _canonical_sha256
++from zoran_v2.action_admissibility_and_plan import (
++    ACTION_BLOCKED,
++    ACTION_NOT_IN_CATALOG,
++    ACTION_NOT_REQUIRED,
++    ACTION_PLAN_READY,
++    ACTION_QUARANTINED,
++    ACTION_REQUEST_MALFORMED,
++    BLOCKED,
++    CATALOG_INVALID,
++    DECISION_INTEGRITY,
++    GOVERNANCE,
++    GOVERNANCE_REQUIRED_KEYS,
++    HUMAN_APPROVAL_REQUIRED,
++    IMPACT_CONTEXT_MALFORMED,
++    LEAK,
++    NON_SCALAR_UNICODE,
++    ORDER_KEY,
++    OUTPUT_KEYS,
++    PASS,
++    PERMISSIONS_INVALID,
++    PROVENANCE_DECL,
++    TARGET_PROVENANCE,
++    UPSTREAM_NOT_PASS,
++    run_action_admissibility_and_plan as RUN,
++)
++
++
++def _code(v):
++    return (v["blocked_by"] or "").split("@")[0]
++
++
++def _decision(targets=None, decision_id=None):
++    tgts = targets if targets is not None else [{"object_public_id": "OBJ-0001", "frame": "CODE"}]
++    d = {
++        "component": "09_STRUCTURED_DECISION", "version": "1.0.0", "status": "PASS", "blocked_by": None,
++        "decision_id": decision_id or ("DECISION-" + "a" * 64),
++        "decision_type": "STRUCTURED_ANALYSIS_DECISION_V1", "decision_status": "DECIDED_ON_ACCEPT",
++        "targets": tgts, "claims_retained": [], "claims_rejected": [], "constraints": [],
++        "justification_refs": {}, "referential_fingerprint": "FP", "source_response_fingerprint": "FP",
++        "CONTENT_SHA256": None, "order_key": "x",
++    }
++    d["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in d.items() if k != "CONTENT_SHA256"})
++    return d
++
++
++def _catalog():
++    return {"version": "1.0.0", "actions": [
++        {"id": "ACTION_NONE", "requires_action": False, "sensitive_mutation": False, "permissions_required": []},
++        {"id": "ACTION_ANNOTATE", "requires_action": True, "sensitive_mutation": False, "permissions_required": []},
++        {"id": "ACTION_REPORT", "requires_action": True, "sensitive_mutation": False, "permissions_required": ["PERM_REPORT"]},
++        {"id": "ACTION_APPLY_PATCH", "requires_action": True, "sensitive_mutation": True, "permissions_required": ["PERM_WRITE"]},
++    ]}
++
++
++def _permissions(granted=None):
++    return {"version": "1.0.0", "granted": granted if granted is not None else ["PERM_WRITE", "PERM_REPORT"]}
++
++
++def _env(action_id="ACTION_ANNOTATE", target_refs=None, assessed=None, decision=None, **over):
++    base = {
++        "runtime_check": {"status": "PASS"}, "object_discovery": {"status": "PASS"},
++        "frame_selection": {"status": "PASS"}, "operants_operes": {"status": "PASS"},
++        "canon_determination": {"status": "PASS"}, "coherence_engine": {"status": "PASS"},
++        "llm_request_build": {"status": "PASS"}, "llm_execution": {"status": "PASS"},
++        "coherence_2": {"status": "PASS"},
++        "structured_decision": decision if decision is not None else _decision(),
++        "action_request": {"action_id": action_id, "target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]]},
++        "impact_context": {"assessed_target_refs": assessed if assessed is not None else [["OBJ-0001", "CODE"]],
++                           "global_impact": "impact faible", "risks": ["r1"]},
++    }
++    base.update(over)
++    return base
++
++
++# ---------- schéma & verdicts nominaux ----------
++
++def test_output_schema_plat_19_cles():
++    assert tuple(RUN(_env(), _catalog(), _permissions()).keys()) == OUTPUT_KEYS
++    assert tuple(RUN(_env(action_id="ZZZ"), _catalog(), _permissions()).keys()) == OUTPUT_KEYS  # BLOCKED : même schéma
++    assert RUN(_env(), _catalog(), _permissions())["order_key"] == ORDER_KEY
++
++
++def test_verdict_plan_ready():
++    v = RUN(_env(action_id="ACTION_ANNOTATE"), _catalog(), _permissions())
++    assert v["status"] == PASS and v["action_status"] == ACTION_PLAN_READY
++    assert v["action_plan_id"].startswith("ACTION-PLAN-") and len(v["action_plan_id"]) == len("ACTION-PLAN-") + 64
++    assert v["global_impact"] == "impact faible" and v["rollback_plan"] is not None
++    assert v["approval_required"] is False and v["approval_scope"] is None
++    assert isinstance(v["CONTENT_SHA256"], str) and len(v["CONTENT_SHA256"]) == 64
++
++
++def test_verdict_not_required():
++    v = RUN(_env(action_id="ACTION_NONE"), _catalog(), _permissions())
++    assert v["status"] == PASS and v["action_status"] == ACTION_NOT_REQUIRED
++    assert v["action_plan_id"] is None and v["global_impact"] is None
++
++
++def test_verdict_action_blocked_permissions_deny():
++    # ACTION_REPORT exige PERM_REPORT ; permissions VALIDES mais ne l'accordent pas -> ACTION_BLOCKED (verdict).
++    v = RUN(_env(action_id="ACTION_REPORT"), _catalog(), _permissions(granted=[]))
++    assert v["status"] == PASS and v["action_status"] == ACTION_BLOCKED and v["action_plan_id"] is None
++
++
++def test_verdict_quarantined_impact_incomplet():
++    # impact ne couvre pas la cible -> QUARANTINED (GLOBAL_IMPACT_BEFORE_PLAN).
++    v = RUN(_env(action_id="ACTION_ANNOTATE", assessed=[]), _catalog(), _permissions())
++    assert v["status"] == PASS and v["action_status"] == ACTION_QUARANTINED and v["action_plan_id"] is None
++
++
++def test_verdict_human_approval_pour_mutation_sensible():
++    v = RUN(_env(action_id="ACTION_APPLY_PATCH"), _catalog(), _permissions(granted=["PERM_WRITE"]))
++    assert v["status"] == PASS and v["action_status"] == HUMAN_APPROVAL_REQUIRED
++    assert v["approval_required"] is True and v["approval_scope"] == {"action_id": "ACTION_APPLY_PATCH", "target_refs": [["OBJ-0001", "CODE"]]}
++    assert v["action_plan_id"] is not None  # plan préparé mais gaté sur GO humain
++
++
++# ---------- contre-exemples (→ BLOCKED) ----------
++
++def test_CE_09_status_non_pass():
++    env = _env(); env["structured_decision"] = {**env["structured_decision"], "status": "BLOCKED"}
++    v = RUN(env, _catalog(), _permissions())
++    assert v["status"] == BLOCKED and _code(v) == UPSTREAM_NOT_PASS and v["blocked_by"].endswith("@09_STRUCTURED_DECISION")
++
++
++def test_CE_upstream_00_a_08_non_pass():
++    for key, comp in (("runtime_check", "00_RUNTIME_CHECK"), ("coherence_2", "08_COHERENCE_2")):
++        env = _env(); env[key] = {**env[key], "status": "BLOCKED"}
++        v = RUN(env, _catalog(), _permissions())
++        assert _code(v) == UPSTREAM_NOT_PASS and v["blocked_by"].endswith("@" + comp), comp
++
++
++def test_CE_decision_id_invalide():
++    env = _env(decision=_decision(decision_id="NOT-A-DECISION-ID"))
++    assert _code(RUN(env, _catalog(), _permissions())) == DECISION_INTEGRITY
++
++
++def test_CE_content_sha256_09_falsifie():
++    d = _decision()
++    d["referential_fingerprint"] = "TAMPERED"  # CONTENT_SHA256 devient obsolète (décision altérée)
++    assert _code(RUN(_env(decision=d), _catalog(), _permissions())) == DECISION_INTEGRITY
++
++
++def test_CE_decision_incomplete():
++    d = _decision(); del d["targets"]
++    assert _code(RUN(_env(decision=d), _catalog(), _permissions())) == DECISION_INTEGRITY
++
++
++def test_CE_action_hors_catalogue():
++    assert _code(RUN(_env(action_id="ACTION_INVENTED"), _catalog(), _permissions())) == ACTION_NOT_IN_CATALOG
++
++
++def test_CE_catalogue_invalide():
++    for bad in ({"version": "1.0.0"}, {"version": "", "actions": []},
++                {"version": "1.0.0", "actions": [{"id": "X"}]}):
++        assert _code(RUN(_env(), bad, _permissions())) == CATALOG_INVALID, bad
++
++
++def test_CE_permissions_invalides():
++    for bad in (None, {}, {"version": "1.0.0"}, {"version": "1.0.0", "granted": "x"}):
++        assert _code(RUN(_env(), _catalog(), bad)) == PERMISSIONS_INVALID, bad
++
++
++def test_CE_action_request_malforme():
++    for env in (_env(target_refs="x"), {**_env(), "action_request": {"action_id": "ACTION_ANNOTATE"}}):
++        assert _code(RUN(env, _catalog(), _permissions())) == ACTION_REQUEST_MALFORMED
++
++
++def test_CE_target_hors_09():
++    assert _code(RUN(_env(target_refs=[["OBJ-9999", "CODE"]]), _catalog(), _permissions())) == TARGET_PROVENANCE
++
++
++def test_CE_impact_context_malforme():
++    for env in ({**_env(), "impact_context": {"assessed_target_refs": [["OBJ-0001", "CODE"]], "risks": ["r"]}},
++                {**_env(), "impact_context": {"assessed_target_refs": "x", "global_impact": "g", "risks": ["r"]}},
++                {**_env(), "impact_context": {"assessed_target_refs": [["OBJ-0001", "CODE"]], "global_impact": "", "risks": ["r"]}}):
++        assert _code(RUN(env, _catalog(), _permissions())) == IMPACT_CONTEXT_MALFORMED
++
++
++def test_CE_surrogate_bloque():
++    v = RUN(_env(action_id="ACTION_ANNOTATE", target_refs=[["OBJ-0001", "CODE"]]),
++            {**_catalog(), "version": "1.0\ud800"}, _permissions())
++    assert v["status"] == BLOCKED and _code(v) == NON_SCALAR_UNICODE
++
++
++def test_CE_fuite_x1f_bloque():
++    v = RUN(_env(), _catalog(), {"version": "1.0.0", "granted": ["PERM\x1fLEAK"]})
++    assert v["status"] == BLOCKED and _code(v) == LEAK
++
++
++# ---------- déterminisme & contexte complet de action_plan_id ----------
++
++def test_action_plan_id_deterministe():
++    a = RUN(_env(), _catalog(), _permissions())
++    b = RUN(_env(), _catalog(), _permissions())
++    assert a["action_plan_id"] == b["action_plan_id"] and a["CONTENT_SHA256"] == b["CONTENT_SHA256"]
++
++
++def test_action_plan_id_contexte_target_change_id():
++    d2 = _decision(targets=[{"object_public_id": "OBJ-0001", "frame": "CODE"},
++                            {"object_public_id": "OBJ-0002", "frame": "CODE"}])
++    a = RUN(_env(decision=d2, target_refs=[["OBJ-0001", "CODE"]]), _catalog(), _permissions())
++    b = RUN(_env(decision=d2, target_refs=[["OBJ-0002", "CODE"]]), _catalog(), _permissions())
++    assert a["action_plan_id"] != b["action_plan_id"]  # cible différente -> plan différent
++
++
++def test_action_plan_id_contexte_permissions_change_id():
++    a = RUN(_env(), _catalog(), _permissions(granted=["PERM_WRITE"]))
++    b = RUN(_env(), _catalog(), _permissions(granted=["PERM_WRITE", "PERM_EXTRA"]))
++    assert a["action_plan_id"] != b["action_plan_id"]  # contexte permissions -> id différent
++
++
++def test_content_sha256_exclut_son_propre_champ():
++    v = RUN(_env(), _catalog(), _permissions())
++    obj_sans = {k: v[k] for k in OUTPUT_KEYS if k != "CONTENT_SHA256"}
++    assert v["CONTENT_SHA256"] == _canonical_sha256(obj_sans)
++
++
++# ---------- invariants divers ----------
++
++def test_immutabilite_envelope():
++    e = _env(); snap = copy.deepcopy(e)
++    RUN(e, _catalog(), _permissions())
++    assert e == snap
++
++
++def test_typeerror_envelope_non_dict():
++    with pytest.raises(TypeError):
++        RUN(None, _catalog(), _permissions())
++
++
++def test_gouvernance_contrat_complet():
++    for k in GOVERNANCE_REQUIRED_KEYS:
++        assert k in GOVERNANCE and GOVERNANCE[k], k
++    assert GOVERNANCE["OBJECT_ID"] == "ZORAN-V2-COMPONENT-10-ACTION-ADMISSIBILITY-AND-PLAN"
++    assert PROVENANCE_DECL["CANONICAL_SPEC"] == "SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN"
++
++
++def test_garde_enumerante():
++    cases = [
++        ("09.status", (lambda: (lambda e: (e.__setitem__("structured_decision", {**e["structured_decision"], "status": "BLOCKED"}), e)[1])(_env()))(), UPSTREAM_NOT_PASS),
++        ("action hors catalogue", _env(action_id="X"), ACTION_NOT_IN_CATALOG),
++        ("target hors 09", _env(target_refs=[["OBJ-9999", "CODE"]]), TARGET_PROVENANCE),
++    ]
++    for label, env, expected in cases:
++        assert _code(RUN(env, _catalog(), _permissions())) == expected, label
+diff --git a/zoran_v2/action_admissibility_and_plan.py b/zoran_v2/action_admissibility_and_plan.py
+new file mode 100644
+index 0000000..32f9678
+--- /dev/null
++++ b/zoran_v2/action_admissibility_and_plan.py
+@@ -0,0 +1,330 @@
++"""10_ACTION_ADMISSIBILITY_AND_PLAN — porte 10 du pipeline de raisonnement ZORAN V2.
++
++Évalue si la décision structurée de 09 peut devenir une action, puis produit un plan BORNÉ et
++vérifiable. AUCUNE exécution, aucune invention (CATALOG_ONLY), aucune action implicite (action_request
++explicite), aucune lecture cachée (catalogue + permissions INJECTÉS). Déterministe, immuable, fail-closed
++00→09, anti-fuite/anti-surrogate récursifs. NO_LLM / NO_NETWORK.
++
++Réutilise les primitives de 09 (SHA certifié) : `_canonical_sha256` (via `_fingerprint`, aucun 2ᵉ hasher),
++`_has_surrogate_codepoint`, `_has_internal_leak` — aucune duplication, aucune divergence.
++Contrat figé : specs/SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN.md.
++"""
++from __future__ import annotations
++
++import re
++
++from zoran_v2.structured_decision import (
++    _canonical_sha256,
++    _has_internal_leak,
++    _has_surrogate_codepoint,
++)
++
++COMPONENT_ID = "10_ACTION_ADMISSIBILITY_AND_PLAN"
++VERSION = "1.0.0"
++
++GOVERNANCE = {
++    "OBJECT_ID": "ZORAN-V2-COMPONENT-10-ACTION-ADMISSIBILITY-AND-PLAN",
++    "META_ID": "META-ZORAN-V2-COMPONENT-10",
++    "VERSION": VERSION,
++    "OWNER": "FRED",
++    "PROVENANCE": "MISSION ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN · branche feat/engine-10-action-admissibility",
++    "GUARD_IDS": [
++        "NO_LLM", "NO_NETWORK", "NO_ACTION_EXECUTION", "NO_ACTION_INVENTION", "CATALOG_ONLY",
++        "GLOBAL_IMPACT_BEFORE_PLAN", "FAIL_CLOSED", "DETERMINISTIC", "IMMUTABLE",
++        "HUMAN_GO_REQUIRED_FOR_SENSITIVE_MUTATION", "ANTI_LEAK", "EXACT_STRING_PRESERVATION",
++        "NON_SCALAR_UNICODE_BLOCKED", "CANONICAL_PRIMITIVE_REUSED", "OBJECT_FIRST_CONTENT_SHA256",
++        "ACTION_PLAN_ID_COVERS_COMPLETE_CONTEXT", "NO_HIDDEN_READ_IN_PURE_FN", "DECISION_09_INTEGRITY_REVALIDATED",
++    ],
++    "TRACEABILITY": "plan {action_plan_id, action_status, global_impact, rollback_plan, approval_scope, justification_refs} ; primitive _fingerprint reutilisee (via 09) ; decision 09 revalidee ; SHA git ; run CI",
++    "VALIDATION": "tests deterministes pytest + CI Python 3.13",
++    "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
++    "DETECTION_MODIF": "SHA git + CI GitHub Actions",
++    "ALERTE": "status=BLOCKED si 00..09 != PASS, decision 09 alteree/incomplete/decision_id invalide, action_request malforme, action hors catalogue, catalogue/permissions invalides, cible hors 09, impact_context malforme, fuite ou surrogate",
++    "ANTI_REGRESSION": "tests contre-exemples adversariaux + determinisme/contexte action_plan_id + integrite 09 (CONTENT_SHA256 recompute) + verdicts + anti-fuite/surrogate + gouvernance ; gate CI",
++}
++
++GOVERNANCE_REQUIRED_KEYS = (
++    "OBJECT_ID", "META_ID", "VERSION", "OWNER", "PROVENANCE", "GUARD_IDS",
++    "TRACEABILITY", "VALIDATION", "ROLLBACK", "DETECTION_MODIF", "ALERTE", "ANTI_REGRESSION",
++)
++
++PROVENANCE_DECL = {
++    "SOURCE_TYPE": "new",
++    "CANONICAL_SPEC": "SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN",
++    "SOURCE_SHA": None,
++    "RETAINED_BEHAVIOR": "admissibilite d'action + plan borne deterministe a partir d'une decision 09 certifiee et d'un catalogue gele ; aucune execution",
++    "REJECTED_BEHAVIOR": "execution d'action, invention hors catalogue, action implicite, generation/LLM, reseau, lecture cachee, mutation du referentiel/catalogue",
++    "LEGACY_CHECK": "aucun comportement du registre FORBIDDEN reintroduit",
++    "BEHAVIOR_FLAGS": {"requests_llm_prechoices": False},
++}
++
++PASS = "PASS"
++BLOCKED = "BLOCKED"
++
++# Verdicts (action_status, quand status=PASS).
++ACTION_NOT_REQUIRED = "ACTION_NOT_REQUIRED"
++ACTION_BLOCKED = "ACTION_BLOCKED"
++ACTION_QUARANTINED = "ACTION_QUARANTINED"
++ACTION_PLAN_READY = "ACTION_PLAN_READY"
++HUMAN_APPROVAL_REQUIRED = "HUMAN_APPROVAL_REQUIRED"
++
++# Contrat de la sortie 09 (revalidée) et format decision_id.
++_SD_KEYS = frozenset((
++    "component", "version", "status", "blocked_by", "decision_id", "decision_type", "decision_status",
++    "targets", "claims_retained", "claims_rejected", "constraints", "justification_refs",
++    "referential_fingerprint", "source_response_fingerprint", "CONTENT_SHA256", "order_key",
++))
++_DECISION_ID_RE = re.compile(r"^DECISION-[0-9a-f]{64}$")
++
++# Schémas catalogue / permissions / action_request / impact_context.
++_CATALOG_KEYS = frozenset(("version", "actions"))
++_ACTION_KEYS = frozenset(("id", "requires_action", "sensitive_mutation", "permissions_required"))
++_PERMISSIONS_KEYS = frozenset(("version", "granted"))
++_ACTION_REQUEST_KEYS = frozenset(("action_id", "target_refs"))
++_IMPACT_KEYS = frozenset(("assessed_target_refs", "global_impact", "risks"))
++
++_STEPS_00_09 = (
++    ("runtime_check", "00_RUNTIME_CHECK"),
++    ("object_discovery", "01_OBJECT_DISCOVERY"),
++    ("frame_selection", "02_ANALYSIS_FRAME_SELECTION"),
++    ("operants_operes", "03_OPERANTS_OPERES_ANALYSIS"),
++    ("canon_determination", "04_CANON_DETERMINATION"),
++    ("coherence_engine", "05_COHERENCE_ENGINE"),
++    ("llm_request_build", "06_LLM_REQUEST_BUILD"),
++    ("llm_execution", "07_LLM_EXECUTION"),
++    ("coherence_2", "08_COHERENCE_2"),
++    ("structured_decision", "09_STRUCTURED_DECISION"),
++)
++
++# Codes blocked_by DÉDIÉS 10 (blocked_by = "<code>@<frontière/moteur source>").
++UPSTREAM_NOT_PASS = "10_ACTION_UPSTREAM_NOT_PASS"
++DECISION_INTEGRITY = "10_ACTION_DECISION_09_INTEGRITY"
++ACTION_REQUEST_MALFORMED = "10_ACTION_REQUEST_MALFORMED"
++ACTION_NOT_IN_CATALOG = "10_ACTION_NOT_IN_CATALOG"
++CATALOG_INVALID = "10_ACTION_CATALOG_INVALID"
++PERMISSIONS_INVALID = "10_ACTION_PERMISSIONS_INVALID"
++TARGET_PROVENANCE = "10_ACTION_TARGET_PROVENANCE"
++IMPACT_CONTEXT_MALFORMED = "10_ACTION_IMPACT_CONTEXT_MALFORMED"
++LEAK = "10_ACTION_LEAK"
++NON_SCALAR_UNICODE = "10_ACTION_NON_SCALAR_UNICODE"
++
++ORDER_KEY = "action_admissibility_puis_plan_borne"
++
++OUTPUT_KEYS = (
++    "component", "version", "status", "blocked_by",
++    "action_plan_id", "action_status", "decision_id", "action_id", "target_refs",
++    "prerequisites", "permissions_required", "risks", "global_impact", "rollback_plan",
++    "approval_required", "approval_scope", "justification_refs", "CONTENT_SHA256", "order_key",
++)
++
++
++def _finalize(fields: dict) -> dict:
++    obj = {k: fields.get(k) for k in OUTPUT_KEYS}
++    obj["CONTENT_SHA256"] = None
++    obj["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in obj.items() if k != "CONTENT_SHA256"})
++    return obj
++
++
++def _blocked(code: str, source: str) -> dict:
++    return _finalize({"component": COMPONENT_ID, "version": VERSION, "status": BLOCKED,
++                      "blocked_by": f"{code}@{source}", "order_key": ORDER_KEY,
++                      "approval_required": None})
++
++
++def _is_str_list(x) -> bool:
++    return isinstance(x, list) and all(isinstance(e, str) and e for e in x)
++
++
++def _is_pair_list(x) -> bool:
++    return (isinstance(x, list)
++            and all(isinstance(p, list) and len(p) == 2 and isinstance(p[0], str) and p[0]
++                    and isinstance(p[1], str) and p[1] for p in x))
++
++
++def _validate_catalog(catalog):
++    """Catalogue versionné valide -> (actions_by_id, catalog_fingerprint) ou (None, None)."""
++    if not isinstance(catalog, dict) or set(catalog) != _CATALOG_KEYS:
++        return None, None
++    if not (isinstance(catalog.get("version"), str) and catalog["version"]):
++        return None, None
++    actions = catalog.get("actions")
++    if not (isinstance(actions, list) and actions):
++        return None, None
++    by_id = {}
++    for a in actions:
++        if not isinstance(a, dict) or set(a) != _ACTION_KEYS:
++            return None, None
++        if not (isinstance(a.get("id"), str) and a["id"]):
++            return None, None
++        if not (isinstance(a.get("requires_action"), bool) and isinstance(a.get("sensitive_mutation"), bool)):
++            return None, None
++        if not (isinstance(a.get("permissions_required"), list)
++                and all(isinstance(p, str) and p for p in a["permissions_required"])
++                and len(set(a["permissions_required"])) == len(a["permissions_required"])):
++            return None, None
++        if a["id"] in by_id:
++            return None, None
++        by_id[a["id"]] = a
++    fingerprint = _canonical_sha256({
++        "version": catalog["version"],
++        "actions": [{"id": a["id"], "requires_action": a["requires_action"],
++                     "sensitive_mutation": a["sensitive_mutation"],
++                     "permissions_required": sorted(a["permissions_required"])}
++                    for a in sorted(actions, key=lambda x: x["id"])],
++    })
++    return by_id, fingerprint
++
++
++def _valid_permissions(permissions) -> bool:
++    return (isinstance(permissions, dict) and set(permissions) == _PERMISSIONS_KEYS
++            and isinstance(permissions.get("version"), str) and permissions["version"]
++            and isinstance(permissions.get("granted"), list)
++            and all(isinstance(p, str) and p for p in permissions["granted"])
++            and len(set(permissions["granted"])) == len(permissions["granted"]))
++
++
++def run_action_admissibility_and_plan(envelope: dict, catalog: dict, permissions: dict) -> dict:
++    """Fonction PURE : envelope(00→09) + catalogue + permissions (INJECTÉS) -> plan borné ou BLOCKED."""
++    if not isinstance(envelope, dict):
++        raise TypeError("envelope doit être un dict")
++
++    # 1) Prérequis 00→09 = PASS.
++    for key, comp in _STEPS_00_09:
++        node = envelope.get(key)
++        if not (isinstance(node, dict) and node.get("status") == PASS):
++            return _blocked(UPSTREAM_NOT_PASS, comp)
++
++    sd = envelope["structured_decision"]
++    action_request = envelope.get("action_request")
++    impact_context = envelope.get("impact_context")
++
++    # 2) Anti-fuite + anti-surrogate sur TOUTES les entrées consommées (avant tout usage/hash).
++    for payload, src in ((sd, "09.decision"), (action_request, "action_request"),
++                         (impact_context, "impact_context"), (catalog, "catalog"), (permissions, "permissions")):
++        if _has_internal_leak(payload):
++            return _blocked(LEAK, src)
++        if _has_surrogate_codepoint(payload):
++            return _blocked(NON_SCALAR_UNICODE, src)
++
++    # 3) Intégrité de la décision 09 (revalidée, jamais confiance au statut) : schéma exact, decision_id valide,
++    #    CONTENT_SHA256 RECALCULÉ == (décision non altérée).
++    if set(sd) != _SD_KEYS:
++        return _blocked(DECISION_INTEGRITY, "09.schema")
++    if not (isinstance(sd.get("decision_id"), str) and _DECISION_ID_RE.match(sd["decision_id"])):
++        return _blocked(DECISION_INTEGRITY, "09.decision_id")
++    if not (isinstance(sd.get("CONTENT_SHA256"), str) and sd["CONTENT_SHA256"]):
++        return _blocked(DECISION_INTEGRITY, "09.CONTENT_SHA256")
++    recomputed = _canonical_sha256({k: v for k, v in sd.items() if k != "CONTENT_SHA256"})
++    if recomputed != sd["CONTENT_SHA256"]:
++        return _blocked(DECISION_INTEGRITY, "09.CONTENT_SHA256.altered")
++    decision_targets = {(t["object_public_id"], t["frame"]) for t in sd["targets"]
++                        if isinstance(t, dict) and isinstance(t.get("object_public_id"), str)
++                        and isinstance(t.get("frame"), str)}
++
++    # 4) Catalogue versionné + permissions (INJECTÉS) revalidés.
++    actions_by_id, catalog_fp = _validate_catalog(catalog)
++    if actions_by_id is None:
++        return _blocked(CATALOG_INVALID, "catalog")
++    if not _valid_permissions(permissions):
++        return _blocked(PERMISSIONS_INVALID, "permissions")
++
++    # 5) action_request explicite (P-10-1) : schéma, action ∈ catalogue, cibles ⊆ 09.
++    if not (isinstance(action_request, dict) and set(action_request) == _ACTION_REQUEST_KEYS):
++        return _blocked(ACTION_REQUEST_MALFORMED, "action_request")
++    action_id = action_request.get("action_id")
++    target_refs_raw = action_request.get("target_refs")
++    if not (isinstance(action_id, str) and action_id and _is_pair_list(target_refs_raw)):
++        return _blocked(ACTION_REQUEST_MALFORMED, "action_request")
++    if action_id not in actions_by_id:
++        return _blocked(ACTION_NOT_IN_CATALOG, "catalog")
++    req_pairs = {(p[0], p[1]) for p in target_refs_raw}
++    if not req_pairs <= decision_targets:
++        return _blocked(TARGET_PROVENANCE, "frontier:action_request<->09.targets")
++
++    # 6) impact_context revalidé.
++    if not (isinstance(impact_context, dict) and set(impact_context) == _IMPACT_KEYS):
++        return _blocked(IMPACT_CONTEXT_MALFORMED, "impact_context")
++    if not (_is_pair_list(impact_context["assessed_target_refs"]) and _is_str_list(impact_context["risks"])):
++        return _blocked(IMPACT_CONTEXT_MALFORMED, "impact_context")
++    if not (isinstance(impact_context["global_impact"], str) and impact_context["global_impact"]):
++        return _blocked(IMPACT_CONTEXT_MALFORMED, "impact_context")
++    assessed_pairs = {(p[0], p[1]) for p in impact_context["assessed_target_refs"]}
++
++    action = actions_by_id[action_id]
++    target_refs = sorted([list(p) for p in req_pairs])
++    permissions_required = sorted(action["permissions_required"])
++    granted = set(permissions["granted"])
++
++    # 7) VERDICT (déterministe).
++    approval_required = False
++    approval_scope = None
++    global_impact = None
++    rollback_plan = None
++    risks = None
++    prerequisites = None
++
++    if not action["requires_action"]:
++        action_status = ACTION_NOT_REQUIRED
++    elif not set(action["permissions_required"]) <= granted:
++        action_status = ACTION_BLOCKED
++    elif not req_pairs <= assessed_pairs:                       # GLOBAL_IMPACT_BEFORE_PLAN
++        action_status = ACTION_QUARANTINED
++    else:
++        prerequisites = permissions_required
++        risks = sorted(impact_context["risks"])
++        global_impact = impact_context["global_impact"]
++        rollback_plan = {"revert_action": action_id, "targets": target_refs}
++        if action["sensitive_mutation"]:                       # HUMAN_GO_REQUIRED_FOR_SENSITIVE_MUTATION
++            action_status = HUMAN_APPROVAL_REQUIRED
++            approval_required = True
++            approval_scope = {"action_id": action_id, "target_refs": target_refs}
++        else:
++            action_status = ACTION_PLAN_READY
++
++    justification_refs = {
++        "decision_id": sd["decision_id"],
++        "decision_content_sha256": sd["CONTENT_SHA256"],
++        "action_id": action_id,
++        "catalog_version": catalog["version"],
++        "catalog_fingerprint": catalog_fp,
++        "permissions_version": permissions["version"],
++    }
++
++    # 8) action_plan_id (contexte COMPLET, sans self-ref) — seulement si un plan/approbation est émis.
++    action_plan_id = None
++    if action_status in (ACTION_PLAN_READY, HUMAN_APPROVAL_REQUIRED):
++        payload = {
++            "decision_id": sd["decision_id"], "decision_content_sha256": sd["CONTENT_SHA256"],
++            "action_id": action_id, "target_refs": target_refs,
++            "catalog_version": catalog["version"], "catalog_fingerprint": catalog_fp,
++            "permissions": {"version": permissions["version"], "granted": sorted(granted)},
++            "prerequisites": prerequisites, "risks": risks, "global_impact": global_impact,
++            "rollback_plan": rollback_plan, "approval_scope": approval_scope,
++        }
++        action_plan_id = "ACTION-PLAN-" + _canonical_sha256(payload)
++
++    return _finalize({
++        "component": COMPONENT_ID, "version": VERSION, "status": PASS, "blocked_by": None,
++        "action_plan_id": action_plan_id, "action_status": action_status,
++        "decision_id": sd["decision_id"], "action_id": action_id, "target_refs": target_refs,
++        "prerequisites": prerequisites, "permissions_required": permissions_required,
++        "risks": risks, "global_impact": global_impact, "rollback_plan": rollback_plan,
++        "approval_required": approval_required, "approval_scope": approval_scope,
++        "justification_refs": justification_refs, "order_key": ORDER_KEY,
++    })
++
++
++def _load_catalog(path=None):
++    import yaml
++    from pathlib import Path
++    p = Path(path) if path else Path(__file__).resolve().parents[1] / "ACTIONS_CATALOG.yaml"
++    try:
++        with open(p, encoding="utf-8") as f:
++            return yaml.safe_load(f)
++    except (yaml.YAMLError, OSError):
++        return None
++
++
++def main(envelope: dict) -> dict:
++    # Impur (fin) : catalogue chargé du fichier gelé ; permissions INJECTÉES via l'enveloppe (aucune lecture cachée dans run).
++    return run_action_admissibility_and_plan(envelope, _load_catalog(), envelope.get("permissions"))
