@@ -1,0 +1,22 @@
+# Catalogue déclaratif VERSIONNÉ des actions autorisées (allowlist gelée) — ENGINE-10.
+# 10 ne peut proposer QUE des actions listées ici (CATALOG_ONLY, NO_ACTION_INVENTION).
+# Chaque action : id (str unique) ; requires_action (bool) ; sensitive_mutation (bool) ;
+# permissions_required (liste de str). `catalog_fingerprint` est recalculé par 10 (sha256 canonique).
+version: "1.0.0"
+actions:
+  - id: ACTION_NONE
+    requires_action: false
+    sensitive_mutation: false
+    permissions_required: []
+  - id: ACTION_ANNOTATE
+    requires_action: true
+    sensitive_mutation: false
+    permissions_required: []
+  - id: ACTION_REPORT
+    requires_action: true
+    sensitive_mutation: false
+    permissions_required: [PERM_REPORT]
+  - id: ACTION_APPLY_PATCH
+    requires_action: true
+    sensitive_mutation: true
+    permissions_required: [PERM_WRITE]
