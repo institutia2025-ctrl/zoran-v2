@@ -54,7 +54,7 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions + fingerprint du referentiel",
-    "ALERTE": "status=BLOCKED si 00/01/02/03 != PASS ; uncanonized pour toute paire sans canon ; conflicts pour egalite de priorite",
+    "ALERTE": "status=BLOCKED si 00/01/02 != PASS, si payload 03 malforme/faux-PASS (contrat 03 revalide, pas seulement le status) ou si payload 01/02 malforme (type canonique impose, jamais un crash sur cle non hashable) ; uncanonized pour toute paire sans canon ; conflicts pour egalite de priorite",
     "ANTI_REGRESSION": "tests non-invention + fail-closed + determinisme (dont dedup id ordre-independant) + fingerprint complet + conflit liste + loader YAML fail-closed + gouvernance ; gate CI",
 }
 
@@ -80,7 +80,45 @@ RC00 = "00_RUNTIME_CHECK"
 OD01 = "01_OBJECT_DISCOVERY"
 FS02 = "02_ANALYSIS_FRAME_SELECTION"
 OA03 = "03_OPERANTS_OPERES_ANALYSIS"
+MALFORMED = "04_CANON_DETERMINATION_MALFORMED_INPUT"
 ORDER_KEY = "object_frame_map_order_puis_canon_priority_desc_puis_id_alphabetique"
+
+
+def _valid_03_output(oa) -> bool:
+    """Contrat de sortie de 03 : 04 ne fait PAS confiance à un simple status=PASS forgé
+    (CSB-03-04-P1-001). Exige la structure canonique d'un vrai résultat 03 (composant, listes
+    analysis/unanalyzed, order_key), pas seulement le statut."""
+    return (isinstance(oa, dict) and oa.get("status") == PASS
+            and oa.get("blocked_by") is None
+            and oa.get("component") == "03_OPERANTS_OPERES_ANALYSIS"
+            and isinstance(oa.get("analysis"), list)
+            and isinstance(oa.get("unanalyzed"), list)
+            and isinstance(oa.get("order_key"), str) and oa.get("order_key"))
+
+
+def _valid_objects(objects) -> bool:
+    """Payload 01 autoritaire : liste d'objets {object_key: str non vide, kind: str}. Type canonique
+    STRICT (pas seulement hashable) -> fail-closed déterministe, jamais un crash (CSB-03-04-P1-002)."""
+    if not isinstance(objects, list):
+        return False
+    for o in objects:
+        if not (isinstance(o, dict) and isinstance(o.get("object_key"), str) and o.get("object_key")
+                and isinstance(o.get("kind"), str)):
+            return False
+    return True
+
+
+def _valid_object_frame_map(ofm) -> bool:
+    """Payload 02 autoritaire : liste d'entrées {object_key: str non vide, frames: list[str]}."""
+    if not isinstance(ofm, list):
+        return False
+    for e in ofm:
+        if not (isinstance(e, dict) and isinstance(e.get("object_key"), str) and e.get("object_key")):
+            return False
+        frames = e.get("frames")
+        if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+            return False
+    return True
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
@@ -204,8 +242,13 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
     if not (isinstance(fs, dict) and fs.get("status") == PASS):
         return _blocked(FS02)
     oa = envelope.get("operants_operes")
-    if not (isinstance(oa, dict) and oa.get("status") == PASS):
+    if not _valid_03_output(oa):  # CSB-03-04-P1-001 : rejette un faux PASS / payload 03 malformé
         return _blocked(OA03)
+
+    # Payloads AUTORITAIRES consommés (01 objects, 02 object_frame_map) : type canonique STRICT,
+    # fail-closed déterministe (jamais un crash sur une clé non hashable, CSB-03-04-P1-002).
+    if not (_valid_objects(od.get("objects")) and _valid_object_frame_map(fs.get("object_frame_map"))):
+        return _blocked(MALFORMED)
 
     norm_registry = _normalize_registry(registry)
 

@@ -38,11 +38,15 @@ def _ids(v):
 
 
 def _env(objects=None, ofm=None, rc="PASS", od="PASS", fs="PASS", oa="PASS"):
+    # 03 fournit un VRAI résultat (contrat complet) : 04 revalide désormais le payload 03, pas
+    # seulement son status (CSB-03-04-P1-001). `oa` fixe le status pour les tests fail-closed.
     return {
         "runtime_check": {"status": rc},
         "object_discovery": {"status": od, "objects": objects or []},
         "frame_selection": {"status": fs, "object_frame_map": ofm or []},
-        "operants_operes": {"status": oa},
+        "operants_operes": {"component": "03_OPERANTS_OPERES_ANALYSIS", "version": "1.0.0",
+                            "status": oa, "blocked_by": None, "analysis": [],
+                            "unanalyzed": [], "order_key": "x"},
     }
 
 

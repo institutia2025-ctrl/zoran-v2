@@ -35,7 +35,7 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00/01/02 != PASS ; unanalyzed pour toute paire sans operant",
+    "ALERTE": "status=BLOCKED si 00/01/02 != PASS ou payload 01/02 malforme (object_key/frames non-str, type canonique impose ; jamais un crash sur cle non hashable) ; entree de registre malformee ignoree (skip deterministe) ; unanalyzed pour toute paire sans operant",
     "ANTI_REGRESSION": "tests non-invention + fail-closed + determinisme + dedup + unanalyzed + gouvernance ; gate CI",
 }
 
@@ -60,7 +60,36 @@ BLOCKED = "BLOCKED"
 RC00 = "00_RUNTIME_CHECK"
 OD01 = "01_OBJECT_DISCOVERY"
 FS02 = "02_ANALYSIS_FRAME_SELECTION"
+MALFORMED = "03_OPERANTS_OPERES_MALFORMED_INPUT"
 ORDER_KEY = "object_frame_map_order_puis_operant_id_alphabetique"
+
+
+def _valid_objects(objects) -> bool:
+    """Payload 01 autoritaire : liste d'objets {object_key: str non vide, kind: str}.
+
+    Impose le TYPE CANONIQUE (pas seulement la hashabilité) : un object_key non-str (ex. liste)
+    ferait lever un TypeError en clé de dict/set -> ici fail-closed déterministe (CSB-03-04-P1-002).
+    """
+    if not isinstance(objects, list):
+        return False
+    for o in objects:
+        if not (isinstance(o, dict) and isinstance(o.get("object_key"), str) and o.get("object_key")
+                and isinstance(o.get("kind"), str)):
+            return False
+    return True
+
+
+def _valid_object_frame_map(ofm) -> bool:
+    """Payload 02 autoritaire : liste d'entrées {object_key: str non vide, frames: list[str]}."""
+    if not isinstance(ofm, list):
+        return False
+    for e in ofm:
+        if not (isinstance(e, dict) and isinstance(e.get("object_key"), str) and e.get("object_key")):
+            return False
+        frames = e.get("frames")
+        if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+            return False
+    return True
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
@@ -80,7 +109,9 @@ def _operants_for(frame, kind, registry) -> list:
     """Opérants du REGISTRE applicables à (frame, kind). Dédup + tri, ⊆ registre."""
     out = set()
     for op in registry:
-        if not isinstance(op, dict) or "id" not in op:
+        # id non-str (ex. liste non hashable) -> rejet DÉTERMINISTE (skip), jamais un crash
+        # (CSB-03-04-P1-002 ; cohérent avec le skip existant des entrées de registre malformées).
+        if not isinstance(op, dict) or not isinstance(op.get("id"), str):
             continue
         frames = op.get("applies_to_frames")
         kinds = op.get("applies_to_kinds")
@@ -106,6 +137,11 @@ def run_operants_operes_analysis(envelope: dict, registry: list) -> dict:
     fs = envelope.get("frame_selection")
     if not (isinstance(fs, dict) and fs.get("status") == PASS):
         return _blocked(FS02)
+
+    # Payloads AUTORITAIRES consommés (01 objects, 02 object_frame_map) : type canonique STRICT,
+    # fail-closed déterministe (jamais un crash sur une clé non hashable). Aucune normalisation.
+    if not (_valid_objects(od.get("objects")) and _valid_object_frame_map(fs.get("object_frame_map"))):
+        return _blocked(MALFORMED)
 
     kind_by_key = {
         o.get("object_key"): o.get("kind")
