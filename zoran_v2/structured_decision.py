@@ -33,6 +33,7 @@ GOVERNANCE = {
         "ADMITTED_ONLY_08_ACCEPT", "FINGERPRINT_CHAIN_04_07_08", "EXACT_COVERAGE_06_TARGETS",
         "CANONICAL_PRIMITIVE_REUSED", "OBJECT_FIRST_CONTENT_SHA256", "EXACT_STRING_PRESERVATION",
         "DECISION_ID_COVERS_COMPLETE_TARGET_CONTEXT",
+        "UNICODE_SCALAR_VALUES_ONLY_BEFORE_SEALING",
     ],
     "TRACEABILITY": "objet-decision {decision_id, CONTENT_SHA256, claims_retained/rejected, constraints, justification_refs} ; primitive canonique _fingerprint reutilisee ; fingerprints 04/07 ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
@@ -102,6 +103,7 @@ RESPONSE_MALFORMED = "09_STRUCTURED_DECISION_RESPONSE_MALFORMED"
 PROVENANCE = "09_STRUCTURED_DECISION_PROVENANCE"
 COVERAGE = "09_STRUCTURED_DECISION_COVERAGE"
 LEAK = "09_STRUCTURED_DECISION_LEAK"
+NON_SCALAR_UNICODE = "09_STRUCTURED_DECISION_NON_SCALAR_UNICODE"
 
 ORDER_KEY = "structured_decision_deterministe_puis_scellement"
 
@@ -152,6 +154,18 @@ def _has_internal_leak(value) -> bool:
         return False
     if isinstance(value, (list, tuple)):
         return any(_has_internal_leak(e) for e in value)
+    return False
+
+
+def _has_surrogate_codepoint(value) -> bool:
+    """Détecte récursivement tout codepoint surrogate, interdit en UTF-8 scalaire."""
+    if isinstance(value, str):
+        return any("\ud800" <= char <= "\udfff" for char in value)
+    if isinstance(value, dict):
+        return any(_has_surrogate_codepoint(key) or _has_surrogate_codepoint(item)
+                   for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_has_surrogate_codepoint(item) for item in value)
     return False
 
 
@@ -359,6 +373,8 @@ def run_structured_decision(envelope: dict) -> dict:
         "claims_retained": claims_retained, "claims_rejected": claims_rejected,
         "constraints": constraints, "justification_refs": justification_refs,
     }
+    if _has_surrogate_codepoint(payload_decision):
+        return _blocked(NON_SCALAR_UNICODE, "09_STRUCTURED_DECISION.payload_decision")
     decision_id = "DECISION-" + _canonical_sha256(payload_decision)
 
     # 11) PHASE 2 : objet final PLAT + CONTENT_SHA256 (hash de l'objet final SANS CONTENT_SHA256). Aucune auto-référence.

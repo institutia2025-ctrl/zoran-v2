@@ -21,6 +21,7 @@ from zoran_v2.structured_decision import (
     GOVERNANCE_REQUIRED_KEYS,
     LEAK,
     NOT_ADMITTED,
+    NON_SCALAR_UNICODE,
     ORDER_KEY,
     OUTPUT_KEYS,
     PASS,
@@ -236,6 +237,52 @@ def test_decision_id_differe_si_seul_kind_public_differe():
     id_text = run_structured_decision(_env(targets=target_text))["decision_id"]
 
     assert id_code != id_text
+
+
+def test_surrogates_unicode_bloquent_sans_hash_crash_sur_tous_les_porteurs():
+    bad = "bad\ud800value"
+    cases = {
+        "kind_public": _env(targets=[
+            {"object_public_id": "OBJ-0001", "kind_public": bad, "frame": "CODE",
+             "canons": ["C"], "operants": ["OP"]}]),
+        "frame": _env(
+            targets=[{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": bad,
+                      "canons": ["C"], "operants": ["OP"]}],
+            response=_response(results=[
+                {"object_public_id": "OBJ-0001", "frame": bad,
+                 "canon_findings": [{"canon": "C", "admissible": True}],
+                 "operant_outcomes": [{"operant": "OP", "applied": True}]}])),
+        "canon": _env(
+            targets=[{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+                      "canons": [bad], "operants": ["OP"]}],
+            response=_response(results=[
+                {"object_public_id": "OBJ-0001", "frame": "CODE",
+                 "canon_findings": [{"canon": bad, "admissible": True}],
+                 "operant_outcomes": [{"operant": "OP", "applied": True}]}])),
+        "operant": _env(
+            targets=[{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
+                      "canons": ["C"], "operants": [bad]}],
+            response=_response(results=[
+                {"object_public_id": "OBJ-0001", "frame": "CODE",
+                 "canon_findings": [{"canon": "C", "admissible": True}],
+                 "operant_outcomes": [{"operant": bad, "applied": True}]}])),
+        "fingerprint": _env(
+            fp08=bad, fp04=bad, request_fp=bad, response=_response(fingerprint=bad)),
+    }
+
+    for carrier, env in cases.items():
+        out = run_structured_decision(env)
+        assert out["status"] == BLOCKED, carrier
+        assert _code(out) == NON_SCALAR_UNICODE, carrier
+        assert out["decision_id"] is None, carrier
+
+
+def test_surrogate_guard_est_recursif_sur_cles_et_valeurs_et_accepte_unicode_scalaire():
+    from zoran_v2.structured_decision import _has_surrogate_codepoint
+
+    assert _has_surrogate_codepoint({"outer": [{"bad\ud800key": "ok"}]}) is True
+    assert _has_surrogate_codepoint({"outer": [{"key": "bad\udfffvalue"}]}) is True
+    assert _has_surrogate_codepoint({"outer": [{"emoji": "😀", "accent": "café"}]}) is False
 
 
 def _env_for_canon(canon):
