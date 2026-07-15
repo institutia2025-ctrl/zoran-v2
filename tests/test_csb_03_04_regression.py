@@ -74,11 +74,62 @@ def test_04_object_key_non_hashable_bloque_sans_crash():
 
 
 def test_03_operant_id_non_hashable_pas_de_crash():
-    # Registre avec operant.id non-str : REJET DÉTERMINISTE (skip, comme les autres entrées
-    # de registre malformées déjà certifiées) -> pas de crash, résultat déterministe.
+    # Registre (CONFIG, pas enveloppe) avec operant.id non-str : REJET DÉTERMINISTE par skip,
+    # comme les entrées de registre malformées DÉJÀ CERTIFIÉES (test_operant_sans_id_ignore,
+    # test_applies_non_liste_ignore) -> pas de crash, résultat déterministe. Finding 002 autorise
+    # explicitement « rejet déterministe OU BLOCKED ».
     reg = [{"id": [], "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]},
            {"id": "OP_DESCRIBE", "applies_to_frames": ["CODE"], "applies_to_kinds": ["code"]}]
     env = _env_03([{"object_key": "k", "kind": "code"}], [{"object_key": "k", "frames": ["CODE"]}])
     v = run_operants_operes_analysis(env, reg)  # ne doit PAS lever
     assert v["status"] == "PASS"
     assert v["analysis"][0]["operants"] == ["OP_DESCRIBE"]  # l'entrée malformée est ignorée
+
+
+# ---- variantes exactes exigées (Session A req 7) : object_key non canonique ----
+
+_BAD_KEYS = [[], {}, None, "", 42, ("t",)]
+
+
+@pytest.mark.parametrize("bad", _BAD_KEYS)
+def test_03_object_key_non_canonique_bloque(bad):
+    env = _env_03([{"object_key": bad, "kind": "code"}], [{"object_key": bad, "frames": ["CODE"]}])
+    v = run_operants_operes_analysis(env, CANON_REGISTRY)  # ne doit PAS lever
+    assert v["status"] == "BLOCKED", bad
+
+
+@pytest.mark.parametrize("bad", _BAD_KEYS)
+def test_04_object_key_non_canonique_bloque(bad):
+    env = _env_04([{"object_key": bad, "kind": "code"}], [{"object_key": bad, "frames": ["CODE"]}])
+    v = run_canon_determination(env, CANON_REGISTRY)  # ne doit PAS lever
+    assert v["status"] == "BLOCKED", bad
+
+
+def test_04_kind_non_str_bloque():
+    env = _env_04([{"object_key": "k", "kind": ["code"]}], [{"object_key": "k", "frames": ["CODE"]}])
+    v = run_canon_determination(env, CANON_REGISTRY)
+    assert v["status"] == "BLOCKED"
+
+
+def test_04_frames_non_str_bloque():
+    env = _env_04([{"object_key": "k", "kind": "code"}], [{"object_key": "k", "frames": [42]}])
+    v = run_canon_determination(env, CANON_REGISTRY)
+    assert v["status"] == "BLOCKED"
+
+
+def test_immutabilite_enveloppe_sur_payload_malforme():
+    # req 8 : l'enveloppe ne doit pas être mutée, même sur une entrée malformée.
+    env = _env_04([{"object_key": [], "kind": "code"}], [{"object_key": [], "frames": ["CODE"]}])
+    snap = copy.deepcopy(env)
+    run_canon_determination(env, CANON_REGISTRY)
+    assert env == snap
+
+
+def test_04_blocks_03_extra_key():
+    # clés EXACTES du contrat 03 : un champ en trop dans le payload 03 -> BLOCKED.
+    env = copy.deepcopy(ENVELOPE_001)
+    env["operants_operes"] = {"component": "03_OPERANTS_OPERES_ANALYSIS", "version": "1.0.0",
+                              "status": "PASS", "blocked_by": None, "analysis": [],
+                              "unanalyzed": [], "order_key": "x", "EXTRA": 1}
+    v = run_canon_determination(env, CANON_REGISTRY)
+    assert v["status"] == "BLOCKED" and v["blocked_by"] == "03_OPERANTS_OPERES_ANALYSIS"

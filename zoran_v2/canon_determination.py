@@ -84,11 +84,17 @@ MALFORMED = "04_CANON_DETERMINATION_MALFORMED_INPUT"
 ORDER_KEY = "object_frame_map_order_puis_canon_priority_desc_puis_id_alphabetique"
 
 
+_VALID_03_KEYS = frozenset((
+    "component", "version", "status", "blocked_by", "analysis", "unanalyzed", "order_key",
+))
+
+
 def _valid_03_output(oa) -> bool:
     """Contrat de sortie de 03 : 04 ne fait PAS confiance à un simple status=PASS forgé
-    (CSB-03-04-P1-001). Exige la structure canonique d'un vrai résultat 03 (composant, listes
-    analysis/unanalyzed, order_key), pas seulement le statut."""
-    return (isinstance(oa, dict) and oa.get("status") == PASS
+    (CSB-03-04-P1-001). Exige la structure canonique EXACTE d'un vrai résultat 03 — clés exactes,
+    composant, status/blocked_by, listes analysis/unanalyzed, order_key — pas seulement le statut."""
+    return (isinstance(oa, dict) and set(oa) == _VALID_03_KEYS
+            and oa.get("status") == PASS
             and oa.get("blocked_by") is None
             and oa.get("component") == "03_OPERANTS_OPERES_ANALYSIS"
             and isinstance(oa.get("analysis"), list)
@@ -252,10 +258,8 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
 
     norm_registry = _normalize_registry(registry)
 
-    kind_by_key = {
-        o.get("object_key"): o.get("kind")
-        for o in (od.get("objects") or []) if isinstance(o, dict)
-    }
+    # Payloads déjà VALIDÉS (type canonique) -> accès direct, sans `or []` ni skip silencieux.
+    kind_by_key = {o["object_key"]: o["kind"] for o in od["objects"]}
 
     canons_selected = []
     conflicts = []
@@ -265,13 +269,11 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
     frames_seen = set()
     pairs = 0
 
-    for entry in (fs.get("object_frame_map") or []):
-        if not isinstance(entry, dict):
-            continue
-        key = entry.get("object_key")
+    for entry in fs["object_frame_map"]:
+        key = entry["object_key"]
         kind = kind_by_key.get(key)
         objects_seen.add(key)
-        for frame in (entry.get("frames") or []):
+        for frame in entry["frames"]:
             pairs += 1
             frames_seen.add(frame)
             apps = _applicable_canons(frame, kind, norm_registry)

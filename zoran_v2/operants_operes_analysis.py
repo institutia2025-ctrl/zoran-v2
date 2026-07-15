@@ -143,19 +143,15 @@ def run_operants_operes_analysis(envelope: dict, registry: list) -> dict:
     if not (_valid_objects(od.get("objects")) and _valid_object_frame_map(fs.get("object_frame_map"))):
         return _blocked(MALFORMED)
 
-    kind_by_key = {
-        o.get("object_key"): o.get("kind")
-        for o in (od.get("objects") or []) if isinstance(o, dict)
-    }
+    # Payloads déjà VALIDÉS (type canonique) -> accès direct, sans `or []` ni skip silencieux.
+    kind_by_key = {o["object_key"]: o["kind"] for o in od["objects"]}
 
     analysis = []
     unanalyzed = []
-    for entry in (fs.get("object_frame_map") or []):
-        if not isinstance(entry, dict):
-            continue
-        key = entry.get("object_key")
+    for entry in fs["object_frame_map"]:
+        key = entry["object_key"]
         kind = kind_by_key.get(key)
-        for frame in (entry.get("frames") or []):
+        for frame in entry["frames"]:
             operants = _operants_for(frame, kind, registry)
             if operants:
                 analysis.append({
