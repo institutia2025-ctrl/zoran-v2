@@ -54,7 +54,7 @@ GOVERNANCE = {
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions + fingerprint du referentiel",
-    "ALERTE": "status=BLOCKED si 00/01/02/03 != PASS ; uncanonized pour toute paire sans canon ; conflicts pour egalite de priorite",
+    "ALERTE": "status=BLOCKED si 00/01/02 != PASS, si payload 03 malforme/faux-PASS (contrat 03 revalide, pas seulement le status) ou si payload 01/02 malforme (type canonique impose, jamais un crash sur cle non hashable) ; uncanonized pour toute paire sans canon ; conflicts pour egalite de priorite",
     "ANTI_REGRESSION": "tests non-invention + fail-closed + determinisme (dont dedup id ordre-independant) + fingerprint complet + conflit liste + loader YAML fail-closed + gouvernance ; gate CI",
 }
 
@@ -80,7 +80,91 @@ RC00 = "00_RUNTIME_CHECK"
 OD01 = "01_OBJECT_DISCOVERY"
 FS02 = "02_ANALYSIS_FRAME_SELECTION"
 OA03 = "03_OPERANTS_OPERES_ANALYSIS"
+MALFORMED = "04_CANON_DETERMINATION_MALFORMED_INPUT"
 ORDER_KEY = "object_frame_map_order_puis_canon_priority_desc_puis_id_alphabetique"
+
+
+_VALID_03_KEYS = frozenset((
+    "component", "version", "status", "blocked_by", "analysis", "unanalyzed", "order_key",
+))
+_ANALYSIS_ENTRY_KEYS = frozenset(("frame", "object_key", "operants", "operes"))
+_UNANALYZED_ENTRY_KEYS = frozenset(("frame", "object_key"))
+_OA_VERSION = "1.0.0"
+_OA_ORDER_KEY = "object_frame_map_order_puis_operant_id_alphabetique"
+
+
+def _valid_03_output(oa, object_keys_01, pairs_02) -> bool:
+    """Contrat COMPLET de sortie de 03 (CSB-03-04-P1-001 / GC-PR16-001).
+
+    04 ne fait confiance NI au statut NI au contenu de 03 : il revalide intégralement le payload,
+    STRUCTURE et PROVENANCE, contre l'amont autoritaire 01/02. Impose :
+    - clés racine EXACTES, component/version/order_key canoniques, status=PASS/blocked_by=None ;
+    - chaque entrée `analysis` = {frame:str, object_key:str non vide, operants:list[str],
+      operes:[object_key]} avec (object_key,frame) ∈ 02 ET object_key ∈ 01 ;
+    - chaque entrée `unanalyzed` = {frame:str, object_key:str non vide} avec (object_key,frame) ∈ 02 ;
+    - aucun couple (object_key,frame) en double, ni présent à la fois dans analysis et unanalyzed ;
+    - COUVERTURE EXACTE : analysis ∪ unanalyzed == exactement les couples de 02.
+    """
+    if not (isinstance(oa, dict) and set(oa) == _VALID_03_KEYS):
+        return False
+    if oa.get("status") != PASS or oa.get("blocked_by") is not None:
+        return False
+    if (oa.get("component") != "03_OPERANTS_OPERES_ANALYSIS"
+            or oa.get("version") != _OA_VERSION or oa.get("order_key") != _OA_ORDER_KEY):
+        return False
+    analysis, unanalyzed = oa.get("analysis"), oa.get("unanalyzed")
+    if not (isinstance(analysis, list) and isinstance(unanalyzed, list)):
+        return False
+    seen = set()
+    for a in analysis:
+        if not (isinstance(a, dict) and set(a) == _ANALYSIS_ENTRY_KEYS):
+            return False
+        ok, fr = a.get("object_key"), a.get("frame")
+        if not (isinstance(ok, str) and ok and isinstance(fr, str)):
+            return False
+        operants = a.get("operants")
+        if not (isinstance(operants, list) and all(isinstance(x, str) for x in operants)):
+            return False
+        if a.get("operes") != [ok]:
+            return False
+        if ok not in object_keys_01 or (ok, fr) not in pairs_02 or (ok, fr) in seen:
+            return False
+        seen.add((ok, fr))
+    for u in unanalyzed:
+        if not (isinstance(u, dict) and set(u) == _UNANALYZED_ENTRY_KEYS):
+            return False
+        ok, fr = u.get("object_key"), u.get("frame")
+        if not (isinstance(ok, str) and ok and isinstance(fr, str)):
+            return False
+        if (ok, fr) not in pairs_02 or (ok, fr) in seen:
+            return False
+        seen.add((ok, fr))
+    return seen == pairs_02  # couverture exacte des couples autoritaires de 02
+
+
+def _valid_objects(objects) -> bool:
+    """Payload 01 autoritaire : liste d'objets {object_key: str non vide, kind: str}. Type canonique
+    STRICT (pas seulement hashable) -> fail-closed déterministe, jamais un crash (CSB-03-04-P1-002)."""
+    if not isinstance(objects, list):
+        return False
+    for o in objects:
+        if not (isinstance(o, dict) and isinstance(o.get("object_key"), str) and o.get("object_key")
+                and isinstance(o.get("kind"), str)):
+            return False
+    return True
+
+
+def _valid_object_frame_map(ofm) -> bool:
+    """Payload 02 autoritaire : liste d'entrées {object_key: str non vide, frames: list[str]}."""
+    if not isinstance(ofm, list):
+        return False
+    for e in ofm:
+        if not (isinstance(e, dict) and isinstance(e.get("object_key"), str) and e.get("object_key")):
+            return False
+        frames = e.get("frames")
+        if not (isinstance(frames, list) and all(isinstance(f, str) for f in frames)):
+            return False
+    return True
 
 OUTPUT_KEYS = (
     "component", "version", "status", "blocked_by",
@@ -204,15 +288,26 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
     if not (isinstance(fs, dict) and fs.get("status") == PASS):
         return _blocked(FS02)
     oa = envelope.get("operants_operes")
-    if not (isinstance(oa, dict) and oa.get("status") == PASS):
+    if not (isinstance(oa, dict) and oa.get("status") == PASS):  # gate rapide de statut 03
+        return _blocked(OA03)
+
+    # Payloads AUTORITAIRES consommés (01 objects, 02 object_frame_map) : type canonique STRICT,
+    # fail-closed déterministe (jamais un crash sur une clé non hashable, CSB-03-04-P1-002).
+    if not (_valid_objects(od.get("objects")) and _valid_object_frame_map(fs.get("object_frame_map"))):
+        return _blocked(MALFORMED)
+    object_keys_01 = {o["object_key"] for o in od["objects"]}
+    pairs_02 = {(e["object_key"], f) for e in fs["object_frame_map"] for f in e["frames"]}
+
+    # Contrat COMPLET de 03 (CSB-03-04-P1-001 / GC-PR16-001) : au-dela du statut, 04 revalide la
+    # STRUCTURE de chaque entree ET sa PROVENANCE (couples ⊆ 02, object_key des analyses ⊆ 01,
+    # couverture exacte des couples de 02). Un payload 03 fictif/incoherent est rejete.
+    if not _valid_03_output(oa, object_keys_01, pairs_02):
         return _blocked(OA03)
 
     norm_registry = _normalize_registry(registry)
 
-    kind_by_key = {
-        o.get("object_key"): o.get("kind")
-        for o in (od.get("objects") or []) if isinstance(o, dict)
-    }
+    # Payloads déjà VALIDÉS (type canonique) -> accès direct, sans `or []` ni skip silencieux.
+    kind_by_key = {o["object_key"]: o["kind"] for o in od["objects"]}
 
     canons_selected = []
     conflicts = []
@@ -222,13 +317,11 @@ def run_canon_determination(envelope: dict, registry: list) -> dict:
     frames_seen = set()
     pairs = 0
 
-    for entry in (fs.get("object_frame_map") or []):
-        if not isinstance(entry, dict):
-            continue
-        key = entry.get("object_key")
+    for entry in fs["object_frame_map"]:
+        key = entry["object_key"]
         kind = kind_by_key.get(key)
         objects_seen.add(key)
-        for frame in (entry.get("frames") or []):
+        for frame in entry["frames"]:
             pairs += 1
             frames_seen.add(frame)
             apps = _applicable_canons(frame, kind, norm_registry)
