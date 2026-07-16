@@ -78,6 +78,12 @@ Cette règle s’applique à tous les agents. Avant toute nouvelle décision, ch
 
 Boucle de gouvernance associée (HORS pipeline, non-runtime, non numérotée comme gate) : `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md` (identifiant interne `GOV_COHERENT_EVOLUTION`). Le pipeline de raisonnement reste borné à ENGINE-00→11 ; ENGINE-11 est la porte terminale. La règle de non-récurrence ci-dessus reste autoritaire.
 
+## Registre autoritaire des capacités différées
+
+Source de vérité des capacités mises de côté (différées, dormantes, hors pipeline, bloquées) : **[`docs/FUTURE_CAPABILITIES_REGISTRY.md`](docs/FUTURE_CAPABILITIES_REGISTRY.md)**.
+
+**RÈGLE (Fred 2026-07-16).** Toute capacité différée, dormante, hors pipeline ou bloquée DOIT être enregistrée dans `docs/FUTURE_CAPABILITIES_REGISTRY.md` AVANT clôture de sa mission. L'absence d'implémentation ne signifie JAMAIS abandon. Aucune capacité enregistrée ne peut être supprimée, renommée ou déclarée caduque sans preuve, audit d'impact global et décision explicite de Fred.
+
 ## Règles d’exécution
 
 - Observer le dépôt, le SHA, le diff et la CI avant de conclure.
