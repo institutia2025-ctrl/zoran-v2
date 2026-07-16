@@ -1,0 +1,53 @@
+# SCHEMA figé du satellite SOCIAL_RECEIVABILITY_SATELLITE_V1 (entrée/sortie).
+# Documentaire + reflété par les constantes de contract.py (INPUT_KEYS / OUTPUT_KEYS). Aucun runtime.
+version: "1.0.0"
+schema_id: SOCIAL_RECEIVABILITY_SCHEMA
+is_truth_signal_const: false
+
+input:
+  proposition_ref: "x — référence de la proposition évaluée (jamais son contenu de vérité)"
+  t: "instant de mesure (contexte temporel injecté)"
+  context: "c — contexte d'usage"
+  population:
+    id: "population ciblée (définie)"
+    size: "taille de population"
+  horizon: "horizon de la mesure"
+  observed_data:
+    - value: "signal d'adoption observé (ex. taux d'acceptation/engagement)"
+      provenance_ref: "provenance vérifiable"
+      timestamp: "horodatage de l'observation"
+      sample_n: "taille d'échantillon de cette observation"
+
+output:
+  status: [MEASURED, NON_MESURE, BLOCKED]
+  wO: "reel [0,1] si MEASURED, sinon null"
+  uncertainty_interval: "[lo, hi]"
+  confidence: "[0,1]"
+  provenance_refs: "liste de références de provenance"
+  trend: "{dir, slope} optionnel, sinon null"
+  counter_evidence: "liste OBLIGATOIRE de contre-preuves"
+  is_truth_signal: false   # constant
+  measured_from_sample_n: "taille d'echantillon agregee ayant produit wO"
+  as_of_t: "instant de reference de la mesure"
+
+fail_closed:
+  N_MIN: 30
+  non_mesure_when:
+    - "population indefinie ou vide"
+    - "aucune donnee observee pour (x,c,population,t)"
+    - "sample_n agrege < N_MIN"
+    - "horizon au-dela des donnees (pas d'extrapolation)"
+    - "provenance absente"
+    - "fraicheur des donnees depassee"
+    - "contexte c non apparie"
+  blocked_when:
+    - "provenance falsifiee"
+    - "entree malformee"
+
+forbidden:
+  - "calcul wO dans le contrat (placeholder only)"
+  - "influence sur S, verdict ressource (05), gates, decisions 09/10/11"
+  - "ecriture canonique"
+  - "action automatique"
+  - "filtre eliminatoire"
+  - "inference sans donnees"
