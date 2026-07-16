@@ -1,6 +1,6 @@
 # SPEC_ENGINE_11_TRACE_AND_CLOSE — contrat figé (ratifié Fred 2026-07-15)
 
-CANONICAL_SPEC = `SPEC_ENGINE_11_TRACE_AND_CLOSE`. Porte **terminale** du pipeline ZORAN V2 (aucune porte après ; 12 dormant).
+CANONICAL_SPEC = `SPEC_ENGINE_11_TRACE_AND_CLOSE`. ENGINE-11 est la porte **terminale** du pipeline certifié ENGINE-00→11 (aucune porte après). La coherent evolution est une méta-boucle de gouvernance hors pipeline, non-runtime et non numérotée comme gate (cf. `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md`, reclassé `GOV_COHERENT_EVOLUTION`).
 
 ## Rôle
 Clôturer une transaction de raisonnement/action en produisant **un** objet-clôture unique, immuable, déterministe,
