@@ -2,13 +2,19 @@
 
 ## Statut
 
-`SPEC_ONLY — NO_CODE_AUTHORIZED`
+`GOVERNANCE_META_LOOP — OUT_OF_PIPELINE — NO_RUNTIME_ENGINE — NO_GATE_12 — SPEC_ONLY — NO_CODE_AUTHORIZED`
+
+> **Reclassement (Fred 2026-07-16).** ENGINE-11 est la porte terminale du pipeline certifié ENGINE-00→11.
+> La coherent evolution est une méta-boucle de gouvernance hors pipeline, non-runtime et non numérotée comme gate.
+> Ce document ne décrit donc **pas** une porte runtime : il décrit une boucle de gouvernance qui observe
+> plusieurs transactions et findings. Identifiant interne : `GOV_COHERENT_EVOLUTION` (l'ancien
+> `12_COHERENT_EVOLUTION` est retiré). Le nom de fichier est conservé pour la traçabilité historique.
 
 ## Identité
 
-- Component ID : `12_COHERENT_EVOLUTION`
-- Rôle : dernier moteur du pipeline ZORAN V2.
-- Position : après `11_TRACE_AND_CLOSE`.
+- Governance-object ID : `GOV_COHERENT_EVOLUTION`
+- Rôle : méta-boucle de gouvernance HORS pipeline (ni moteur ni gate).
+- Position : HORS pipeline ; observe les traces closes de `11_TRACE_AND_CLOSE` et le corpus de findings à travers PLUSIEURS transactions (jamais une porte par-transaction).
 - Fonction : transformer les erreurs confirmées en évolution gouvernée des cadres, invariants, guards et tests afin d’empêcher la récurrence de la même classe d’erreur dans des conditions équivalentes.
 
 ## Principe canonique
@@ -224,11 +230,11 @@ ERROR_CONFIRMED
 - aucun apprentissage local si `delta S global < 0` ;
 - toute récurrence d’une erreur canonisée impose au minimum `FIX_REQUIRED`.
 
-## Sortie minimale
+## Sortie minimale (objet de gouvernance illustratif — NON-RUNTIME)
 
 ```json
 {
-  "component": "12_COHERENT_EVOLUTION",
+  "governance_object": "GOV_COHERENT_EVOLUTION",
   "status": "PASS | BLOCKED",
   "verdict": "LEARNING_CANONICAL | LEARNING_FIX_REQUIRED | LEARNING_QUARANTINE | LEARNING_INDETERMINATE",
   "learning_object": {},
@@ -243,15 +249,28 @@ ERROR_CONFIRMED
 
 `authorize_canonical_promotion=true` uniquement après audit externe, replay réussi, absence de régression globale et validation de la gouvernance.
 
-## Position dans la roadmap
+## Position (hors pipeline)
 
-Le pipeline cible devient :
+Le pipeline de raisonnement certifié est **complet et borné à ENGINE-00→11** ; `11_TRACE_AND_CLOSE` en est la **porte terminale**.
 
 ```text
 00_RUNTIME_CHECK
 ...
-11_TRACE_AND_CLOSE
-12_COHERENT_EVOLUTION
+11_TRACE_AND_CLOSE          <- porte terminale du pipeline certifié ENGINE-00→11
+--------------------------------------------------------------
+GOV_COHERENT_EVOLUTION      <- HORS pipeline : méta-boucle de gouvernance (non-runtime, non numérotée comme gate)
 ```
 
-`12` est le moteur d’évolution contrôlée de ZORAN. Il ne doit être codé qu’après certification de `00→11` et validation externe du présent contrat.
+`GOV_COHERENT_EVOLUTION` est une **boucle de gouvernance hors pipeline**, pas un moteur ni une porte runtime. Invariants du reclassement :
+
+1. `ENGINE-00→11` constitue le pipeline de raisonnement complet et certifié.
+2. `ENGINE-11` est terminal ; aucune porte n'est ajoutée après lui.
+3. La coherent evolution **observe plusieurs transactions et findings** (jamais une étape par transaction).
+4. Elle **fonctionne hors pipeline** (non-runtime dans le chemin de raisonnement).
+5. Elle **ne modifie jamais rétroactivement** une transaction close.
+6. Toute politique évoluée doit être **versionnée**.
+7. Les **replays futurs utilisent la version historique engagée** dans la transaction (jamais une politique postérieure).
+8. Toute promotion de règle, guard ou politique exige **preuve + test de non-récurrence + audit externe + décision de Fred**.
+9. Le **processus manuel actuel reste autoritaire** tant qu'aucune défaillance d'échelle n'est observée.
+
+Aucun code runtime n'est autorisé : ce contrat reste `SPEC_ONLY`.

@@ -76,7 +76,7 @@ Aucun contre-exemple confirmé ni aucune classe d’erreur canonisée ne peut re
 
 Cette règle s’applique à tous les agents. Avant toute nouvelle décision, chaque agent doit vérifier le registre d’erreurs canonisées et les guards associés. Une erreur déjà apprise mais reproduite constitue une régression systémique et impose au minimum `FIX_REQUIRED`.
 
-Contrat futur associé : `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md`.
+Boucle de gouvernance associée (HORS pipeline, non-runtime, non numérotée comme gate) : `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md` (identifiant interne `GOV_COHERENT_EVOLUTION`). Le pipeline de raisonnement reste borné à ENGINE-00→11 ; ENGINE-11 est la porte terminale. La règle de non-récurrence ci-dessus reste autoritaire.
 
 ## Règles d’exécution
 
