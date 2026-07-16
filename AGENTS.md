@@ -78,11 +78,17 @@ Cette règle s’applique à tous les agents. Avant toute nouvelle décision, ch
 
 Boucle de gouvernance associée (HORS pipeline, non-runtime, non numérotée comme gate) : `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md` (identifiant interne `GOV_COHERENT_EVOLUTION`). Le pipeline de raisonnement reste borné à ENGINE-00→11 ; ENGINE-11 est la porte terminale. La règle de non-récurrence ci-dessus reste autoritaire.
 
-## Registre autoritaire des capacités différées
+## Registre autoritaire des capacités différées — CONSULTATION & EXHUMATION OBLIGATOIRES
 
-Source de vérité des capacités mises de côté (différées, dormantes, hors pipeline, bloquées) : **[`docs/FUTURE_CAPABILITIES_REGISTRY.md`](docs/FUTURE_CAPABILITIES_REGISTRY.md)**.
+Source de vérité des capacités mises de côté (différées, dormantes, hors pipeline, déplacées, bloquées) :
+**[`docs/future_capabilities/FUTURE_CAPABILITIES_REGISTRY.md`](docs/future_capabilities/FUTURE_CAPABILITIES_REGISTRY.md)**
++ une fiche durable par capacité + [`EXHUMATION_PROTOCOL.md`](docs/future_capabilities/EXHUMATION_PROTOCOL.md).
 
-**RÈGLE (Fred 2026-07-16).** Toute capacité différée, dormante, hors pipeline ou bloquée DOIT être enregistrée dans `docs/FUTURE_CAPABILITIES_REGISTRY.md` AVANT clôture de sa mission. L'absence d'implémentation ne signifie JAMAIS abandon. Aucune capacité enregistrée ne peut être supprimée, renommée ou déclarée caduque sans preuve, audit d'impact global et décision explicite de Fred.
+**RÈGLE (Fred 2026-07-16).**
+- Toute capacité différée, dormante, hors pipeline, déplacée ou bloquée DOIT être enregistrée dans le registre AVANT clôture de sa mission ; l'absence d'implémentation ne signifie JAMAIS abandon.
+- **Avant toute mission** touchant mémoire/histoire, cadres manquants, sélection/déplacement de cadres, recherche Internet, preuve externe, falsification, futur probable, créativité, présentation de réponse, bruit/pertinence, ou évolution/correction des règles : l'agent DOIT **relire le registre, exhumer les fiches concernées et déclarer leur impact** via le bloc `FUTURE_CAPABILITY_CHECK` (cf. `EXHUMATION_PROTOCOL.md`). EXISTING_FIRST : aucune reconstruction concurrente d'une capacité déjà enregistrée.
+- **Les identifiants sémantiques priment sur les anciens numéros** ; ne pas créer de nouveaux numéros ENGINE.
+- Aucune capacité enregistrée ne peut être supprimée, renommée ou déclarée caduque sans preuve, audit d'impact global et décision explicite de Fred. Aucune activation/code sans GO Fred explicite.
 
 ## Règles d’exécution
 
