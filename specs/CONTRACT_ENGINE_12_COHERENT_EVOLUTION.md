@@ -9,13 +9,15 @@
 - Component ID : `12_COHERENT_EVOLUTION`
 - Rôle : dernier moteur du pipeline ZORAN V2.
 - Position : après `11_TRACE_AND_CLOSE`.
-- Fonction : transformer les erreurs confirmées en évolution gouvernée des cadres, invariants, guards et tests afin d’empêcher la récurrence de la même classe d’erreur dans des conditions équivalentes.
+- Fonction : transformer les erreurs confirmées en évolution gouvernée des cadres, invariants, guards et tests afin d'empêcher la récurrence de la même classe d'erreur dans des conditions équivalentes.
 
 ## Principe canonique
 
-Une correction n’est cohérente que si elle modifie durablement les conditions de décision qui ont permis l’erreur, sans dégrader la cohérence globale.
+Une correction n'est cohérente que si elle modifie durablement les conditions de décision qui ont permis l'erreur, sans dégrader la cohérence globale.
 
-`12` ne corrige pas directement le produit. Il produit une proposition d’apprentissage canonique soumise à validation externe.
+`12` ne corrige pas directement le produit. Il produit une proposition d'apprentissage canonique soumise à validation externe.
+
+Aucune équation de cohérence évolutive ne devient canonique tant que chacune de ses variables n'est pas calculable par un tiers à partir de données figées et de règles versionnées.
 
 ## Entrées autoritaires minimales
 
@@ -27,16 +29,17 @@ Une correction n’est cohérente que si elle modifie durablement les conditions
 - cadres manquants ou insuffisants ;
 - invariants et guards existants ;
 - tests de non-régression ;
-- SHA exact et provenance des preuves.
+- SHA exact et provenance des preuves ;
+- règle d'applicabilité exécutable et versionnée ;
+- dataset de replay figé.
 
-## Objet d’apprentissage
-
-Chaque erreur confirmée `e` produit un objet :
+## Objet d'apprentissage
 
 ```json
 {
   "error_id": "ERR-...",
   "error_class": "...",
+  "severity": "P0 | P1 | P2 | P3",
   "failed_claim": "...",
   "counterexample": "...",
   "frames_used": [],
@@ -46,7 +49,9 @@ Chaque erreur confirmée `e` produit un objet :
   "new_invariant": "...",
   "guard": "...",
   "regression_test": "...",
-  "applicability": "...",
+  "applicability_rule_id": "...",
+  "applicability_version": "...",
+  "applicability_dataset": "...",
   "global_impact": "...",
   "evidence_sha": "...",
   "status": "PROPOSED | QUARANTINED | CANONICAL | REJECTED"
@@ -65,7 +70,7 @@ Pour chaque erreur, `12` doit distinguer :
 6. conflit entre cadres ;
 7. hiérarchie de cadres incorrecte.
 
-Un cadre n’est jamais supprimé automatiquement. La transformation peut être :
+Un cadre n'est jamais supprimé automatiquement. Transformations autorisées :
 
 - `ADD_REQUIRED_FRAME` ;
 - `REQUIRE_FRAME_COMBINATION` ;
@@ -74,123 +79,161 @@ Un cadre n’est jamais supprimé automatiquement. La transformation peut être 
 - `ADD_CONDITIONAL_VETO` ;
 - `REJECT_FRAME_IN_CONTEXT`.
 
-## Définition mathématique
+## Définition mathématique V1
 
-### 1. Applicabilité d’une erreur apprise
+### 1. Applicabilité identifiable
 
-Pour une erreur confirmée `e` et un nouvel objet `x`, définir :
+Pour une erreur confirmée `e`, un cas `x` et une version de règle `v_e` :
 
 ```text
-A_e(x) ∈ {0,1}
+a_e(x ; v_e) ∈ {0,1}
 ```
 
-`A_e(x)=1` si les conditions d’applicabilité canonisées de la classe d’erreur `e` sont réunies dans `x`.
+`a_e` doit être une fonction déterministe, versionnée et testable.
+
+Interdictions absolues :
+
+- lire le verdict final à prédire ;
+- lire le finding produit sur le cas ;
+- modifier rétroactivement la règle d'applicabilité pour améliorer le score ;
+- décider l'applicabilité par prose ou jugement non traçable.
+
+Signature cible :
+
+```python
+def applicable(case: dict, rule: dict) -> bool:
+    """Décision déterministe indépendante du verdict à prédire."""
+```
 
 ### 2. Indicateur de récurrence
 
 ```text
-R_e(x) ∈ {0,1}
+r_e(x) ∈ {0,1}
 ```
 
-`R_e(x)=1` si, malgré `A_e(x)=1`, le système reproduit le verdict ou l’action invalidée par le contre-exemple `e`, sans nouvelle preuve ni override gouverné.
+`r_e(x)=1` si, malgré `a_e(x;v_e)=1`, le système reproduit le verdict ou l'action invalidée par le contre-exemple `e`, sans nouvelle preuve ni override gouverné.
 
 Condition de non-récurrence :
 
 ```text
-∀e canonique, ∀x futur : A_e(x)=1 ⇒ R_e(x)=0
+∀e canonique, ∀x futur : a_e(x;v_e)=1 ⇒ r_e(x)=0
 ```
 
-Équivalent opérationnel :
+### 3. Taux de récurrence observable
+
+V1 exclut tout poids libre :
 
 ```text
-A_e(x)=1 ⇒ décision(x) ∉ BAD_VERDICTS(e)
+rho = [Σ_e,x a_e(x;v_e) * r_e(x)] / [Σ_e,x a_e(x;v_e)]
 ```
 
-ou le système doit émettre un blocage explicite :
+Bornes :
 
 ```text
-A_e(x)=1 ∧ preuve_nouvelle_absente ⇒ GUARD_e(x)=BLOCKED
+0 <= rho <= 1
 ```
 
-### 3. Transformation de la politique de cadres
+Si le dénominateur est nul :
 
-Soit `F_t(x)` l’ensemble ordonné et pondéré des cadres mobilisés à l’instant `t`.
+```text
+INDETERMINATE_NO_APPLICABLE_REPLAY
+```
 
-Après erreur confirmée `e` :
+Il est interdit d'inférer `rho=0` de l'absence de replay.
+
+### 4. Score V1 candidat
+
+Soit le score canonique courant :
+
+```text
+S = [beta * delta_phi] / [1 + T + sigma]
+```
+
+La forme V1 candidate est :
+
+```text
+S_evo = S * (1 - rho)
+```
+
+soit :
+
+```text
+S_evo = [beta * delta_phi * (1 - rho)] / [1 + T + sigma]
+```
+
+Cette forme n'applique qu'une seule pénalité de récurrence et n'introduit aucun paramètre libre.
+
+Les éléments suivants sont interdits en V1 et placés au backlog expérimental V2 :
+
+- double pénalité numérateur + dénominateur ;
+- `lambda` ;
+- poids libres `w_e` ;
+- exposant libre `k` dans `(1-rho)^k` ;
+- calibration rétroactive.
+
+### 5. Veto critique
+
+Une récurrence critique n'est jamais compensable par une moyenne :
+
+```text
+si ∃e de sévérité P0 ou P1, ∃x : a_e(x;v_e)=1 ∧ r_e(x)=1
+alors BLOCKED
+```
+
+### 6. Transformation de la politique de cadres
 
 ```text
 F_{t+1}(x) = U_e(F_t(x))
 ```
 
-avec `U_e` une transformation gouvernée pouvant ajouter un cadre, imposer une combinaison, modifier une priorité ou introduire un veto conditionnel.
-
 La transformation est admissible seulement si :
 
 ```text
-ΔS_global(U_e) ≥ 0
+ΔS_global(U_e) >= 0
 ```
 
 et si le contre-exemple est fermé :
 
 ```text
-R_e(x_e après U_e) = 0
+r_e(x_e après U_e)=0
 ```
 
-### 4. Taux d’apprentissage effectif
+### 7. Stabilité temporelle
 
-Sur l’ensemble `E_t` des classes d’erreurs confirmées jusqu’à `t`, pondérées par leur criticité `w_e > 0` :
+Lorsque plusieurs fenêtres comparables existent :
 
 ```text
-L_t = 1 - [Σ_e w_e * recurrence_e] / [Σ_e w_e * applicable_e]
+mean_rho_W
+var_rho_W
 ```
 
-avec :
+Ces métriques sont descriptives tant que la fenêtre, le corpus et les versions d'applicabilité ne sont pas figés.
 
-- `applicable_e` : nombre de replays ou cas futurs où `A_e=1` ;
-- `recurrence_e` : nombre de cas où `A_e=1` et `R_e=1`.
+Une baisse de `rho` accompagnée d'une variance élevée ne prouve pas une évolution stable.
 
-Bornes :
+## Conditions expérimentales obligatoires avant code
+
+ENGINE-12 ne peut pas être codé tant que les preuves suivantes n'existent pas :
+
+1. au moins 3 classes d'erreurs réelles ;
+2. une fonction `applicable()` versionnée par classe ;
+3. un dataset figé d'au moins 50 cas positifs et négatifs ;
+4. une vérité de référence indépendante ;
+5. précision, rappel et accord inter-évaluateurs mesurés ;
+6. stabilité des règles entre versions ;
+7. au moins une prédiction falsifiable reliant `rho` à un comportement observable ;
+8. audit explicite de résistance à Goodhart.
+
+## Prédiction falsifiable minimale
+
+Une hypothèse expérimentale doit être préenregistrée, par exemple :
 
 ```text
-0 ≤ L_t ≤ 1
+si rho_t augmente sur une fenêtre comparable,
+alors le nombre de régressions confirmées au cycle suivant augmente.
 ```
 
-- `L_t=1` : aucune classe d’erreur canonisée n’a récidivé dans les cas applicables observés ;
-- `L_t<1` : régression systémique mesurée.
-
-Si aucun cas applicable n’a encore été rejoué, `L_t` est `INDETERMINATE`, jamais fixé artificiellement à `1`.
-
-### 5. Score de cohérence évolutive
-
-La formule canonique est réutilisée avec des proxies explicites :
-
-```text
-S_evolution = (beta * delta_phi_learning) / (1 + T_learning + sigma_learning)
-```
-
-V1 : `beta = 1.0`.
-
-Définitions :
-
-- `delta_phi_learning` : proportion pondérée des erreurs confirmées converties en objets d’apprentissage complets, guards actifs, tests de régression et replays réussis ;
-- `T_learning` : taux pondéré de récurrences observées, contradictions entre nouvelles règles et violations de gouvernance ;
-- `sigma_learning` : coefficient de variation de la couverture des guards entre moteurs, cadres et classes d’erreurs.
-
-Le score n’est calculable que si les unités, poids, corpus d’erreurs et cas de replay sont déclarés.
-
-### 6. Gain d’évolution
-
-```text
-ΔS_evolution = S_evolution(t+1) - S_evolution(t)
-```
-
-Une promotion canonique est interdite si :
-
-```text
-ΔS_evolution < 0
-```
-
-ou si elle ferme localement `e` mais introduit une nouvelle récurrence critique dans une autre classe.
+Elle doit être testée sans modifier rétroactivement les règles d'applicabilité.
 
 ## Machine à états
 
@@ -198,6 +241,8 @@ ou si elle ferme localement `e` mais introduit une nouvelle récurrence critique
 ERROR_CONFIRMED
 → COUNTEREXAMPLE_REPRODUCED
 → FRAME_CAUSE_IDENTIFIED
+→ APPLICABILITY_RULE_VERSIONED
+→ DATASET_VALIDATED
 → LEARNING_OBJECT_PROPOSED
 → GLOBAL_IMPACT_EVALUATED
 → EXTERNAL_AUDIT
@@ -216,13 +261,15 @@ ERROR_CONFIRMED
 ## Guards absolus
 
 - aucune promotion sans contre-exemple reproduit ;
-- aucune règle créée uniquement à partir d’une intuition ;
+- aucune règle créée uniquement à partir d'une intuition ;
 - aucune suppression automatique de cadre ;
 - aucune auto-certification par ZORAN ;
-- aucune preuve provenant d’un autre SHA ;
+- aucune preuve provenant d'un autre SHA ;
 - aucun guard sans test de non-régression ;
 - aucun apprentissage local si `delta S global < 0` ;
-- toute récurrence d’une erreur canonisée impose au minimum `FIX_REQUIRED`.
+- toute récurrence P0/P1 impose `BLOCKED` ;
+- toute variable non identifiable impose `INDETERMINATE` ;
+- toute optimisation du dénominateur d'applicabilité impose `FIX_REQUIRED`.
 
 ## Sortie minimale
 
@@ -235,17 +282,16 @@ ERROR_CONFIRMED
   "frame_transformation": {},
   "counterexample_closed": false,
   "global_delta_S": null,
-  "learning_rate": null,
+  "rho": null,
+  "rho_observability": "IDENTIFIED | INDETERMINATE",
   "coherence_evolution": null,
   "authorize_canonical_promotion": false
 }
 ```
 
-`authorize_canonical_promotion=true` uniquement après audit externe, replay réussi, absence de régression globale et validation de la gouvernance.
+`authorize_canonical_promotion=true` uniquement après audit externe, replay réussi, absence de régression globale, identifiabilité démontrée et validation de la gouvernance.
 
 ## Position dans la roadmap
-
-Le pipeline cible devient :
 
 ```text
 00_RUNTIME_CHECK
@@ -254,4 +300,4 @@ Le pipeline cible devient :
 12_COHERENT_EVOLUTION
 ```
 
-`12` est le moteur d’évolution contrôlée de ZORAN. Il ne doit être codé qu’après certification de `00→11` et validation externe du présent contrat.
+`12` est le moteur d'évolution contrôlée de ZORAN. Il ne doit être codé qu'après certification de `00→11`, validation externe du présent contrat et satisfaction des conditions expérimentales ci-dessus.
