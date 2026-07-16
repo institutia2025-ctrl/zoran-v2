@@ -1,0 +1,26 @@
+# EXECUTION_RESULT_SCHEMA — schéma canonique figé du résultat d'exécution externe.
+# Consommé UNIQUEMENT par 11_TRACE_AND_CLOSE, en objet explicitement INJECTÉ et vérifiable.
+# Aucune confiance dans le seul CONTENT_SHA256 : 11 revalide aussi la correspondance EXACTE au plan 10
+# (action_plan_id, action_id, target_refs), la provenance explicite, l'identité de l'exécuteur et le
+# statut appartenant à l'énumération figée. Aucune exécution n'est déclenchée par ce schéma.
+version: "1.0.0"
+schema_id: EXECUTION_RESULT_SCHEMA
+required_keys:
+  - execution_result_id      # identifiant de l'objet résultat
+  - action_plan_id           # DOIT == 10.action_plan_id (exact)
+  - action_id                # DOIT == 10.action_id (exact)
+  - target_refs              # DOIT == 10.target_refs (exact)
+  - executor_id              # identité de l'exécuteur externe (présente, non vide)
+  - execution_status         # ∈ execution_status_enum
+  - started_at_context       # contexte temporel INJECTÉ (jamais horloge)
+  - completed_at_context     # contexte temporel INJECTÉ (jamais horloge)
+  - effects                  # liste stricte des effets déclarés (peut être vide)
+  - anomalies                # liste stricte de chaînes non vides documentant les anomalies (peut être vide)
+  - rollback_available       # booléen : un rollback est-il disponible
+  - provenance_refs          # références de provenance explicites (non vides)
+  - authenticity_proof       # {algorithm=RS256, key_id, signature_b64} sur le payload canonique exact
+  - CONTENT_SHA256           # hash de l'objet SANS ce champ (revalidé)
+execution_status_enum:
+  - SUCCESS                  # exécution réussie
+  - FAILED                   # échec réel dans le scope autorisé (anomalie douce)
+  - PARTIAL                  # effet partiel explicitement déclaré (anomalie douce)
