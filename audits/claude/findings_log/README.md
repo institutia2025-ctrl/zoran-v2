@@ -34,12 +34,14 @@ couverture % (coverage.py non exécuté) · LOC-comme-dette seul (signal faible,
 Un finding dont `reused_downstream=true` = une **classe fermée** dont le garde protège les moteurs suivants
 par construction. La courbe descendante 05→10 s'EXPLIQUE par le cumul de ces gardes réutilisés — pas par chance.
 
-## État actuel (2026-07-15)
-- FINDINGS : 10 lignes `provenance:reconstructed` (SHAs best-effort NON re-vérifiés). Courbe **05=6 · 08=2 · 09=2 · 10=0** (10 réaudit, provisoire).
-- Gardes réutilisés en aval : 6 (surrogate + primitive canonique + contexte-complet-id → **importés par 10**).
-- METRICS (mesurés) : LOC **486→510→392→330**, tests **68→63→32→27** → **consolidation** (moteurs tardifs plus légers en faisant plus).
-- severite : CRASH 1 (09), le reste LOGIC/PROVENANCE/SCHEMA → plus de crash-class en aval (garde surrogate).
-- caught_by : les 10 findings loggés = `external_certifier` ; les self-precorrections (pré-ship) sont comptés dans ENGINE_METRICS (`self_precorrections_approx` : 1→2→2→3, en hausse).
+## État actuel (2026-07-16) — pipeline 00→11 COMPLET (12 dormant)
+- FINDINGS : 15 lignes. 05/08/09 = `reconstructed` (10 lignes) ; **10 et 11 = `live`** (5 lignes, journalisées à la certif+merge).
+- Courbe findings (ordre construction) : **05=6 · 08=2 · 09=2 · 10=3 · 11=2**. Gardes réutilisés en aval : **9/15**.
+- METRICS (mesurés, SHA certifiés) : LOC **486→510→392→363→534**, tests(fn) **68→63→32→31→64** (11 = 150 cas via paramétrage).
+- severite : CRASH 1 (09) · SECURITY 2 (11 : auth preuve externe + usurpation identité) · LOGIC 8 · PROVENANCE 3 · SCHEMA 1.
+- dette (Minimum-Debt V1) : D_LOGIC 9 · D_SYSTEM 3 · D_CODE 2 · D_METRIC 1 (PROOF_SHA_LAG).
+- caught_by : 15/15 `external_certifier` ; self_precorrections (pré-ship) montent **1→2→2→3→4** (ENGINE_METRICS).
+- 11 (terminal) : findings de type SÉCURITÉ (ne plus faire confiance à une preuve externe auto-attestée / une identité usurpable) — reused_downstream=0 (aucun moteur actif en aval).
 
 ## Limites (honnêteté)
 1. `reconstructed` ≠ vérifié : `fix_sha`, `rounds_to_green`, `self_precorrections_approx`, `fixer_mix` sont de mémoire de session.

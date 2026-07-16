@@ -55,8 +55,9 @@ def main():
     print("-- dette (Minimum-Debt V1) : " + repr(dict(debt)))
     print("-- attrape par : " + repr(dict(caught))
           + "  (NB: self_precorrections non journalises ici, cf ENGINE_METRICS)")
+    merged = [e for e in order if metrics[e].get("merged")]
     print(f"\ntotal findings = {len(findings)} ; reutilises aval = {sum(reused.values())}"
-          f" ; 10 = reaudit (provisoire)")
+          f" ; moteurs mergés = {','.join(merged)} ; pipeline 00->11 complet (12 dormant)")
 
 
 if __name__ == "__main__":
