@@ -107,6 +107,7 @@ HUMAN_UNEXPECTED = "11_CLOSE_HUMAN_UNEXPECTED"
 AUTHORITY_MALFORMED = "11_CLOSE_AUTHORITY_MALFORMED"
 AUTHORITY_FINGERPRINT_MISMATCH = "11_CLOSE_AUTHORITY_FINGERPRINT_MISMATCH"
 AUTHORITY_NOT_PROVISIONED = "11_CLOSE_AUTHORITY_NOT_PROVISIONED"
+AUTHORITY_REVOKED = "11_CLOSE_AUTHORITY_REVOKED"
 HUMAN_UNAUTHORIZED = "11_CLOSE_HUMAN_UNAUTHORIZED"
 EXECUTOR_UNAUTHORIZED = "11_CLOSE_EXECUTOR_UNAUTHORIZED"
 PROVENANCE_MALFORMED = "11_CLOSE_PROVENANCE_MALFORMED"
@@ -152,6 +153,14 @@ _AUTH_PROOF_KEYS = frozenset(("algorithm", "key_id", "signature_b64"))
 # publique exige un GO séparé et remplacera explicitement ces engagements nuls.
 RUNTIME_HUMAN_AUTHORITY_COMMITMENT = None
 RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT = None
+REVOKED_AUTHORITY_KEY_IDS = frozenset((
+    "HUMAN-FRED-RSA-1",
+    "EXECUTOR-1-RSA-1",
+))
+REVOKED_AUTHORITY_FINGERPRINTS = frozenset((
+    "003fab738e2dd19fbb862377a7c384815c44ab8a6c173c6eb66b21ad1deed7ae",
+    "5e3ffcd470eab2d83aea1d1e118504dc970fa8c02fc37197b6c6b29bde663368",
+))
 
 ORDER_KEY = "trace_consolidation_puis_cloture"
 
@@ -206,6 +215,8 @@ def _normalized_authority(registry, kind):
 def _validate_authority(registry, kind):
     expected = (RUNTIME_HUMAN_AUTHORITY_COMMITMENT if kind == "human"
                 else RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT)
+    if expected in REVOKED_AUTHORITY_FINGERPRINTS:
+        raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_commitment"))
     if expected is None:
         raise ValueError((AUTHORITY_NOT_PROVISIONED, f"{kind}_authority.not_provisioned"))
     if _has_internal_leak(registry) or _has_surrogate_codepoint(registry):
@@ -232,7 +243,12 @@ def _validate_authority(registry, kind):
             raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
         if kind == "human" and not _valid_refs(principal["roles"]):
             raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
-    if _canonical_sha256(_normalized_authority(registry, kind)) != expected:
+        if principal["key_id"] in REVOKED_AUTHORITY_KEY_IDS:
+            raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_key_id"))
+    actual_fingerprint = _canonical_sha256(_normalized_authority(registry, kind))
+    if actual_fingerprint in REVOKED_AUTHORITY_FINGERPRINTS:
+        raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_fingerprint"))
+    if actual_fingerprint != expected:
         raise ValueError((AUTHORITY_FINGERPRINT_MISMATCH, f"{kind}_authority.canonical_commitment"))
     return registry[list_key]
 

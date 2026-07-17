@@ -23,6 +23,12 @@ Les engagements runtime humain et exécuteur restent donc explicitement nuls. To
 `execution_result` est `BLOCKED` avant lecture tant qu'un GO séparé n'a pas provisionné de nouvelles clés publiques.
 Les flux ne portant aucune preuve externe restent fonctionnels. Les tests cryptographiques utilisent uniquement des
 clés éphémères générées en mémoire dans un contexte de test isolé ; ce contexte n'est pas contrôlable par le payload.
+La révocation est un invariant indépendant du provisioning : les anciens `key_id` `HUMAN-FRED-RSA-1` et
+`EXECUTOR-1-RSA-1`, ainsi que les deux empreintes d'autorité historiquement compromises, appartiennent à des ensembles
+immuables de révocation. ENGINE-11 les refuse avec `11_CLOSE_AUTHORITY_REVOKED` avant toute validation de signature,
+y compris si un futur engagement runtime est configuré exactement sur une ancienne empreinte ou sur un registre
+contenant un ancien `key_id`.
+
 E1 enveloppe complète 00→10 (chaque porte status=PASS ; 09 sous `structured_decision`, 10 sous `action_admissibility_and_plan`).
 E2 catalogue canonique + permissions (nécessaires au replay EXACT de 10 — injectés).
 E3 résultat d'exécution externe — OPTIONNEL, objet `EXECUTION_RESULT_SCHEMA` injecté + vérifiable.

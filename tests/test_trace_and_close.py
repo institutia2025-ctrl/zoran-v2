@@ -324,6 +324,56 @@ def test_T2_anciens_key_ids_revoques_en_runtime():
     assert _code(out) == trace_module.AUTHORITY_NOT_PROVISIONED
 
 
+@pytest.mark.parametrize("kind,old_key_id", [
+    ("human", "HUMAN-FRED-RSA-1"),
+    ("executor", "EXECUTOR-1-RSA-1"),
+])
+def test_R1_ancien_key_id_reprovisionne_reste_revoque(monkeypatch, kind, old_key_id):
+    env = _full_env(action_id=("ACTION_APPLY_PATCH" if kind == "human" else "ACTION_ANNOTATE"),
+                    granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, human_fp = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    authority = human_authority if kind == "human" else executor_authority
+    principal_key = "identities" if kind == "human" else "executors"
+    authority[principal_key][0]["key_id"] = old_key_id
+    injected_fp = _canonical_sha256(authority)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "human" else human_fp)
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "executor" else executor_fp)
+    proof = ({"human_decision": _human(plan)} if kind == "human"
+             else {"execution_result": _exec_result(plan)})
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **proof,
+              provenance_refs=["prov://close/1"], ci_refs=["ci://run/1"],
+              closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == "11_CLOSE_AUTHORITY_REVOKED"
+
+
+@pytest.mark.parametrize("kind,revoked_fingerprint", [
+    ("human", "003fab738e2dd19fbb862377a7c384815c44ab8a6c173c6eb66b21ad1deed7ae"),
+    ("executor", "5e3ffcd470eab2d83aea1d1e118504dc970fa8c02fc37197b6c6b29bde663368"),
+])
+def test_R1_ancienne_empreinte_reprovisionnee_reste_revoquee(monkeypatch, kind, revoked_fingerprint):
+    env = _full_env(action_id=("ACTION_APPLY_PATCH" if kind == "human" else "ACTION_ANNOTATE"),
+                    granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, human_fp = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        revoked_fingerprint if kind == "human" else human_fp)
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT",
+                        revoked_fingerprint if kind == "executor" else executor_fp)
+    proof = ({"human_decision": _human(plan)} if kind == "human"
+             else {"execution_result": _exec_result(plan)})
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **proof,
+              provenance_refs=["prov://close/1"], ci_refs=["ci://run/1"],
+              closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == "11_CLOSE_AUTHORITY_REVOKED"
+
+
 def test_autorite_ephemere_test_isolee_acceptee_scope_exact():
     env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
     out = _close(env, human_decision=_human(_plan(env)),
