@@ -15,6 +15,31 @@ consolidant les preuves 00→10 + l'état final + la décision humaine éventuel
 `CLOSURE_COMPLETENESS` · `EXTERNAL_RESULT_INJECTED_AND_VERIFIED` · `HUMAN_GO_SCOPE_BOUNDED_EXACT` · `NO_TIME_INVENTION`.
 
 ## Entrées autoritaires (injectées ; revalidées ; NO_HIDDEN_READ)
+
+### État de provisioning des autorités externes
+
+Les autorités historiques sont révoquées. Aucun registre public de remplacement n'est provisionné dans le dépôt.
+Les engagements runtime humain et exécuteur restent donc explicitement nuls. Toute `human_decision` ou tout
+`execution_result` est `BLOCKED` avant lecture tant qu'un GO séparé n'a pas provisionné de nouvelles clés publiques.
+Les flux ne portant aucune preuve externe restent fonctionnels. Les tests cryptographiques utilisent uniquement des
+clés éphémères générées en mémoire dans un contexte de test isolé ; ce contexte n'est pas contrôlable par le payload.
+La révocation est un invariant indépendant du provisioning : les anciens `key_id` `HUMAN-FRED-RSA-1` et
+`EXECUTOR-1-RSA-1`, ainsi que les deux empreintes d'autorité historiquement compromises, appartiennent à des ensembles
+immuables de révocation. ENGINE-11 les refuse avec `11_CLOSE_AUTHORITY_REVOKED` avant toute validation de signature,
+y compris si un futur engagement runtime est configuré exactement sur une ancienne empreinte ou sur un registre
+contenant un ancien `key_id`.
+
+La révocation couvre aussi la matière publique RSA elle-même. ENGINE-11 calcule pour chaque principal une empreinte
+canonique de `{rsa_n, rsa_e}`, indépendante du `key_id`, de l'ordre et de l'empreinte globale du registre. Les deux
+clés publiques historiquement compromises sont inscrites dans une deny-list immuable et provoquent
+`11_CLOSE_PUBLIC_KEY_REVOKED` avant toute lecture ou validation de signature, même réemballées sous un nouveau
+`key_id`, dans un nouveau registre engagé, ou mélangées à de nouvelles autorités.
+
+`rsa_n` est interprété dans une représentation unique : décimal ASCII, converti en entier base 10 puis réémis sans
+zéro initial avant calcul de l'empreinte publique et avant l'opération RSA. Les syntaxes non décimales, vides ou hors
+domaine sont `BLOCKED`. Les variantes à un ou plusieurs zéros initiaux sont ainsi ramenées à la même clé publique et
+restent couvertes par la deny-list avant toute validation de signature.
+
 E1 enveloppe complète 00→10 (chaque porte status=PASS ; 09 sous `structured_decision`, 10 sous `action_admissibility_and_plan`).
 E2 catalogue canonique + permissions (nécessaires au replay EXACT de 10 — injectés).
 E3 résultat d'exécution externe — OPTIONNEL, objet `EXECUTION_RESULT_SCHEMA` injecté + vérifiable.

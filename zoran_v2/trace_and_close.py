@@ -46,12 +46,13 @@ GOVERNANCE = {
         "INDEPENDENT_HUMAN_AUTHORITY", "INDEPENDENT_EXECUTOR_AUTHORITY",
         "EXACT_AUTHORITY_SCOPE", "AUTHORITY_FINGERPRINT_REVALIDATED",
         "EXTERNAL_EMITTER_RS256_AUTHENTICATED", "EXACT_EXTERNAL_PAYLOAD_SIGNED",
+        "COMPROMISED_AUTHORITIES_REVOKED", "NO_RUNTIME_AUTHORITY_WITHOUT_PROVISIONING",
     ],
-    "TRACEABILITY": "objet-cloture {closure_id, close_status, pipeline_gate_digest 00-10, final_state, human_decision_ref, execution_result_ref, anomalies, resumption_conditions, rollback_plan_ref, CONTENT_SHA256} ; 09/10 rejoues ; autorites engagees + cles publiques canoniques + signatures RS256 du payload externe exact ; SHA git ; run CI",
+    "TRACEABILITY": "objet-cloture {closure_id, close_status, pipeline_gate_digest 00-10, final_state, human_decision_ref, execution_result_ref, anomalies, resumption_conditions, rollback_plan_ref, CONTENT_SHA256} ; 09/10 rejoues ; anciennes autorites revoquees ; engagements runtime nuls jusqu'au provisioning public separe ; SHA git ; run CI",
     "VALIDATION": "tests deterministes pytest + CI Python 3.13",
     "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
     "DETECTION_MODIF": "SHA git + CI GitHub Actions",
-    "ALERTE": "status=BLOCKED si 00..10 != PASS, replay 09/10 divergent, autorite absente/divergente/hors-scope, signature externe absente/invalide/hors-contexte, resultat d'execution/decision humaine falsifie/incomplet, execution sans plan/sans GO/apres refus, provenance/ci/closed_at absents, fuite ou surrogate",
+    "ALERTE": "status=BLOCKED si 00..10 != PASS, replay 09/10 divergent, preuve externe sans nouvelle autorite runtime provisionnee, autorite divergente/hors-scope, signature absente/invalide/hors-contexte, provenance/ci/closed_at absents, fuite ou surrogate",
     "ANTI_REGRESSION": "tests adversariaux + replay 09/10 puis autorites engagees AVANT entrees de cloture + identites/executants/actions/scopes/provenances exacts + 10 statuts + determinisme + anti-fuite/surrogate ; gate CI",
 }
 
@@ -105,6 +106,9 @@ HUMAN_SCOPE_MISMATCH = "11_CLOSE_HUMAN_SCOPE_MISMATCH"
 HUMAN_UNEXPECTED = "11_CLOSE_HUMAN_UNEXPECTED"
 AUTHORITY_MALFORMED = "11_CLOSE_AUTHORITY_MALFORMED"
 AUTHORITY_FINGERPRINT_MISMATCH = "11_CLOSE_AUTHORITY_FINGERPRINT_MISMATCH"
+AUTHORITY_NOT_PROVISIONED = "11_CLOSE_AUTHORITY_NOT_PROVISIONED"
+AUTHORITY_REVOKED = "11_CLOSE_AUTHORITY_REVOKED"
+PUBLIC_KEY_REVOKED = "11_CLOSE_PUBLIC_KEY_REVOKED"
 HUMAN_UNAUTHORIZED = "11_CLOSE_HUMAN_UNAUTHORIZED"
 EXECUTOR_UNAUTHORIZED = "11_CLOSE_EXECUTOR_UNAUTHORIZED"
 PROVENANCE_MALFORMED = "11_CLOSE_PROVENANCE_MALFORMED"
@@ -146,8 +150,22 @@ _EXECUTOR_AUTH_KEYS = frozenset(("version", "source", "executors"))
 _EXECUTOR_KEYS = frozenset(("executor_id", "allowed_action_ids", "allowed_target_refs",
                             "provenance_refs", "key_id", "rsa_n", "rsa_e"))
 _AUTH_PROOF_KEYS = frozenset(("algorithm", "key_id", "signature_b64"))
-CANONICAL_HUMAN_AUTHORITY_FINGERPRINT = "003fab738e2dd19fbb862377a7c384815c44ab8a6c173c6eb66b21ad1deed7ae"
-CANONICAL_EXECUTOR_AUTHORITY_FINGERPRINT = "5e3ffcd470eab2d83aea1d1e118504dc970fa8c02fc37197b6c6b29bde663368"
+# Aucun registre runtime n'est provisionné dans ce dépôt. Une future rotation
+# publique exige un GO séparé et remplacera explicitement ces engagements nuls.
+RUNTIME_HUMAN_AUTHORITY_COMMITMENT = None
+RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT = None
+REVOKED_AUTHORITY_KEY_IDS = frozenset((
+    "HUMAN-FRED-RSA-1",
+    "EXECUTOR-1-RSA-1",
+))
+REVOKED_AUTHORITY_FINGERPRINTS = frozenset((
+    "003fab738e2dd19fbb862377a7c384815c44ab8a6c173c6eb66b21ad1deed7ae",
+    "5e3ffcd470eab2d83aea1d1e118504dc970fa8c02fc37197b6c6b29bde663368",
+))
+REVOKED_PUBLIC_KEY_FINGERPRINTS = frozenset((
+    "e32212c3e77d546e860c82e4a33dc3dbfa2766458c5def9bde3f20b696cfc44b",
+    "1136245a1d1bf25e05ff56640c6bbc4fafb2ea14fccbe5302e369b2f5095292c",
+))
 
 ORDER_KEY = "trace_consolidation_puis_cloture"
 
@@ -199,7 +217,29 @@ def _normalized_authority(registry, kind):
             list_key: sorted(principals, key=lambda item: item[id_key])}
 
 
+def _canonical_rsa_n(rsa_n: str) -> str:
+    """Décimal ASCII minimal de n ; toute autre base ou syntaxe est refusée."""
+    if not (isinstance(rsa_n, str) and rsa_n
+            and all("0" <= char <= "9" for char in rsa_n)):
+        raise ValueError("rsa_n_not_ascii_decimal")
+    value = int(rsa_n, 10)
+    if value <= 1:
+        raise ValueError("rsa_n_out_of_range")
+    return str(value)
+
+
+def _public_key_fingerprint(rsa_n: str, rsa_e: int) -> str:
+    """Empreinte de (n,e) canoniques, indépendante du registre et du key_id."""
+    return _canonical_sha256({"rsa_e": rsa_e, "rsa_n": _canonical_rsa_n(rsa_n)})
+
+
 def _validate_authority(registry, kind):
+    expected = (RUNTIME_HUMAN_AUTHORITY_COMMITMENT if kind == "human"
+                else RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT)
+    if expected in REVOKED_AUTHORITY_FINGERPRINTS:
+        raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_commitment"))
+    if expected is None:
+        raise ValueError((AUTHORITY_NOT_PROVISIONED, f"{kind}_authority.not_provisioned"))
     if _has_internal_leak(registry) or _has_surrogate_codepoint(registry):
         raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority"))
     top_keys = _HUMAN_AUTH_KEYS if kind == "human" else _EXECUTOR_AUTH_KEYS
@@ -219,14 +259,23 @@ def _validate_authority(registry, kind):
                 and isinstance(principal["allowed_target_refs"], list)
                 and _valid_refs(principal["provenance_refs"])
                 and isinstance(principal["key_id"], str) and principal["key_id"]
-                and isinstance(principal["rsa_n"], str) and principal["rsa_n"].isdigit()
+                and isinstance(principal["rsa_n"], str)
                 and isinstance(principal["rsa_e"], int) and principal["rsa_e"] > 1):
             raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
         if kind == "human" and not _valid_refs(principal["roles"]):
             raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
-    expected = (CANONICAL_HUMAN_AUTHORITY_FINGERPRINT if kind == "human"
-                else CANONICAL_EXECUTOR_AUTHORITY_FINGERPRINT)
-    if _canonical_sha256(_normalized_authority(registry, kind)) != expected:
+        try:
+            public_key_fingerprint = _public_key_fingerprint(principal["rsa_n"], principal["rsa_e"])
+        except ValueError:
+            raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.rsa_n")) from None
+        if public_key_fingerprint in REVOKED_PUBLIC_KEY_FINGERPRINTS:
+            raise ValueError((PUBLIC_KEY_REVOKED, f"{kind}_authority.revoked_public_key"))
+        if principal["key_id"] in REVOKED_AUTHORITY_KEY_IDS:
+            raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_key_id"))
+    actual_fingerprint = _canonical_sha256(_normalized_authority(registry, kind))
+    if actual_fingerprint in REVOKED_AUTHORITY_FINGERPRINTS:
+        raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_fingerprint"))
+    if actual_fingerprint != expected:
         raise ValueError((AUTHORITY_FINGERPRINT_MISMATCH, f"{kind}_authority.canonical_commitment"))
     return registry[list_key]
 
@@ -257,7 +306,7 @@ def _rsa_sha256_valid(obj, principal):
         return False
     try:
         signature = base64.b64decode(proof["signature_b64"], validate=True)
-        n, e = int(principal["rsa_n"]), principal["rsa_e"]
+        n, e = int(_canonical_rsa_n(principal["rsa_n"]), 10), principal["rsa_e"]
         size = (n.bit_length() + 7) // 8
         if len(signature) != size:
             return False
@@ -389,10 +438,14 @@ def run_trace_and_close(envelope: dict, catalog: dict, permissions: dict,
     if ad != run_action_admissibility_and_plan(envelope, catalog, permissions):
         return _blocked(ACTION_10_REPLAY_MISMATCH, "frontier:10.received<->10.replayed")
 
-    # 5) Autorités indépendantes versionnées et engagées, avant toute entrée de clôture.
+    # 5) Aucun nouveau registre public n'est provisionné : toute preuve externe
+    #    est bloquée avant lecture. Les flux sans preuve externe restent actifs.
+    human_principals = ()
+    executor_principals = ()
     try:
-        human_principals = _validate_authority(human_authority, "human")
-        executor_principals = _validate_authority(executor_authority, "executor")
+        if human_decision is not None or execution_result is not None:
+            human_principals = _validate_authority(human_authority, "human")
+            executor_principals = _validate_authority(executor_authority, "executor")
     except ValueError as e:
         code, src = e.args[0]
         return _blocked(code, src)
