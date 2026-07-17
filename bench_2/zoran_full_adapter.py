@@ -13,7 +13,7 @@ def main():
                                disabled_engine=payload.get("disabled_engine"))
     result.update(criterion_scores="UNAVAILABLE", score_justifications={"status": "UNAVAILABLE"},
                   veto="UNAVAILABLE")
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps(result, ensure_ascii=True))
 
 
 if __name__ == "__main__":

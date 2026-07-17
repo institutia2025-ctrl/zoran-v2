@@ -12,7 +12,7 @@ def main():
     print(json.dumps({"response": response, "model_version": MODEL,
                       "engines_active": [], "engines_disabled": [],
                       "criterion_scores": "UNAVAILABLE", "score_justifications": {"status": "UNAVAILABLE"},
-                      "veto": "UNAVAILABLE", "errors": [], **metrics}, ensure_ascii=False))
+                      "veto": "UNAVAILABLE", "errors": [], **metrics}, ensure_ascii=True))
 
 
 if __name__ == "__main__":
