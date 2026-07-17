@@ -1,0 +1,8 @@
+{
+  "id": "ZORAN-V2-BENCH-1-HARNESS",
+  "meta_id": "BENCH_1_INSTRUMENTATION_V1",
+  "guard_ids": ["BENCH_SCOPE_ONLY", "NO_ENGINE_MUTATION", "RAW_MEASURES_ONLY"],
+  "timestamp_created": "2026-07-17T00:00:00+02:00",
+  "owner": "CODEX_SESSION_C_FIXER",
+  "purpose": "Versioned BENCH_1 harness, fixtures, traces, and aggregate manifests"
+}
