@@ -1,0 +1,86 @@
+{
+  "status": "BENCH_QUALITY_COMPLETE",
+  "quality_gate": "FAIL",
+  "continuity_measurement": "NON_MESURE",
+  "model_only_quality": {
+    "answers_request": 3.84,
+    "factual_accuracy": 3.9615,
+    "useful_completeness": 4.0,
+    "constraint_compliance": 3.92,
+    "provenance_fact_hypothesis": 3.9615,
+    "no_invention": 3.9167,
+    "justified_refusal": 3.75,
+    "useful_concision": 2.92
+  },
+  "zoran_full_quality": {
+    "answers_request": 0.0,
+    "factual_accuracy": 0.0833,
+    "useful_completeness": 0.0,
+    "constraint_compliance": 0.0,
+    "provenance_fact_hypothesis": 0.0,
+    "no_invention": 1.25,
+    "justified_refusal": 0.0,
+    "useful_concision": 0.0
+  },
+  "per_criterion_delta": {
+    "answers_request": -3.84,
+    "factual_accuracy": -3.8782,
+    "useful_completeness": -4.0,
+    "constraint_compliance": -3.92,
+    "provenance_fact_hypothesis": -3.9615,
+    "no_invention": -2.6667,
+    "justified_refusal": -3.75,
+    "useful_concision": -2.92
+  },
+  "blind_judge_agreement": {
+    "judgments": "60/60",
+    "unresolved_scores": 126,
+    "coverage_pairs": "30/30",
+    "unique_judgment_ids": 60,
+    "traceability": "PROMPT_ID_TO_RUN_ID_TO_JUDGMENT_ID_COMPLETE"
+  },
+  "continuity_metrics": {
+    "status": "NON_MESURE",
+    "reason": "REAL_ZMOS_PERSISTENCE_NOT_USED"
+  },
+  "resources": {
+    "latency_p50_p95": {
+      "status": "NON_MESURE_QUALITY_GATE_NOT_PASSED"
+    },
+    "tokens": {
+      "status": "NON_MESURE_QUALITY_GATE_NOT_PASSED"
+    },
+    "cost": {
+      "status": "NON_MESURE_QUALITY_GATE_NOT_PASSED"
+    },
+    "cpu_ram_swap": {
+      "status": "NON_MESURE_QUALITY_GATE_NOT_PASSED"
+    }
+  },
+  "error_taxonomy": {
+    "generation_errors": 0,
+    "judge_errors": 0,
+    "unresolved_judge_disagreements": 126,
+    "null_values": 0,
+    "duplicate_run_ids": 0,
+    "duplicate_judgment_ids": 0,
+    "missing_pairs": 0
+  },
+  "sota_claim": "BELOW_BASELINE",
+  "evidence_sha256": [
+    {
+      "path": "outputs/value_bench_v1/runs.jsonl",
+      "sha256": "547740B6E6CA278BE7D2D9D585167759B6474ECFE89E6035C30D04AF6FF64025"
+    },
+    {
+      "path": "outputs/value_bench_v1/judgments.jsonl",
+      "sha256": "938B210EB7A3CE39E8BDB467BB9D18C6153D7AEF61AE558E4EE5D3C9BF698978"
+    },
+    {
+      "path": "outputs/value_bench_v1/scored.jsonl",
+      "sha256": "25D455CFC788EFCA6A12837D9B522FA26A7300D82996E139EDEC4E1642DC0A57"
+    }
+  ],
+  "mutations_engines": 0,
+  "merge_performed": false
+}

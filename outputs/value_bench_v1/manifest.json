@@ -1,0 +1,26 @@
+{
+  "protocol": "ZORAN_VALUE_BENCH_V1",
+  "coverage": {
+    "pairs": 30,
+    "runs": 60,
+    "judgments": 60
+  },
+  "files": [
+    {
+      "path": "outputs/value_bench_v1/runs.jsonl",
+      "sha256": "547740B6E6CA278BE7D2D9D585167759B6474ECFE89E6035C30D04AF6FF64025"
+    },
+    {
+      "path": "outputs/value_bench_v1/judgments.jsonl",
+      "sha256": "938B210EB7A3CE39E8BDB467BB9D18C6153D7AEF61AE558E4EE5D3C9BF698978"
+    },
+    {
+      "path": "outputs/value_bench_v1/scored.jsonl",
+      "sha256": "25D455CFC788EFCA6A12837D9B522FA26A7300D82996E139EDEC4E1642DC0A57"
+    },
+    {
+      "path": "outputs/value_bench_v1/BENCH_VALUE_V1_REPORT.json",
+      "sha256": "DDA74A38155D336818295A7DEEE2EC3E0E798B25BAF5F3989F4CCCFF768EE91D"
+    }
+  ]
+}
