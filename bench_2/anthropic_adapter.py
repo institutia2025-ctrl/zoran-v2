@@ -71,4 +71,3 @@ def invoke(text: str, model_version: str = MODEL):
                     "provider_stop_reason": body.get("stop_reason", "UNAVAILABLE"),
                     "temperature": TEMPERATURE, "max_tokens": MAX_TOKENS,
                     "seed_support": "UNAVAILABLE_PROVIDER_SEED_LABEL_ONLY"}
-
