@@ -162,8 +162,39 @@ def _structured_client(model_client, model_version, trace):
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise AdapterError(f"MODEL_RESPONSE_NOT_JSON:{exc.msg}") from exc
-        trace["model_output"] = parsed
-        return parsed
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("results"), list):
+            raise AdapterError("MODEL_RESPONSE_SCHEMA_INVALID")
+        by_target = {(item.get("object_public_id"), item.get("frame")): item
+                     for item in parsed["results"] if isinstance(item, dict)}
+        normalized_results = []
+        for target in request["targets"]:
+            result = by_target.get((target["object_public_id"], target["frame"]))
+            if result is None:
+                raise AdapterError("MODEL_RESPONSE_TARGET_MISSING")
+            findings = {item.get("canon"): item.get("admissible")
+                        for item in result.get("canon_findings", []) if isinstance(item, dict)}
+            outcomes = {item.get("operant"): item for item in result.get("operant_outcomes", [])
+                        if isinstance(item, dict)}
+            if set(findings) != set(target["canons"]) or set(outcomes) != set(target["operants"]):
+                raise AdapterError("MODEL_RESPONSE_COVERAGE_MISMATCH")
+            canon_findings = [{"canon": canon, "admissible": findings[canon]} for canon in target["canons"]]
+            operant_outcomes = []
+            for operant in target["operants"]:
+                applied = outcomes[operant].get("applied")
+                item = {"operant": operant, "applied": applied}
+                if applied is False:
+                    item["reason_code"] = outcomes[operant].get("reason_code", "INSUFFICIENT_EVIDENCE")
+                operant_outcomes.append(item)
+            normalized_results.append({"object_public_id": target["object_public_id"],
+                                       "frame": target["frame"], "canon_findings": canon_findings,
+                                       "operant_outcomes": operant_outcomes})
+        normalized = {"response_schema": "RESPONSE_STRUCTURED_ANALYSIS_V1",
+                      "instruction_kind": request["instruction_kind"],
+                      "referential_fingerprint": request["referential_fingerprint"],
+                      "results": normalized_results}
+        trace["model_output_raw"] = parsed
+        trace["model_output_normalized"] = normalized
+        return normalized
     return client
 
 
