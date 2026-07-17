@@ -15,6 +15,14 @@ consolidant les preuves 00→10 + l'état final + la décision humaine éventuel
 `CLOSURE_COMPLETENESS` · `EXTERNAL_RESULT_INJECTED_AND_VERIFIED` · `HUMAN_GO_SCOPE_BOUNDED_EXACT` · `NO_TIME_INVENTION`.
 
 ## Entrées autoritaires (injectées ; revalidées ; NO_HIDDEN_READ)
+
+### État de provisioning des autorités externes
+
+Les autorités historiques sont révoquées. Aucun registre public de remplacement n'est provisionné dans le dépôt.
+Les engagements runtime humain et exécuteur restent donc explicitement nuls. Toute `human_decision` ou tout
+`execution_result` est `BLOCKED` avant lecture tant qu'un GO séparé n'a pas provisionné de nouvelles clés publiques.
+Les flux ne portant aucune preuve externe restent fonctionnels. Les tests cryptographiques utilisent uniquement des
+clés éphémères générées en mémoire dans un contexte de test isolé ; ce contexte n'est pas contrôlable par le payload.
 E1 enveloppe complète 00→10 (chaque porte status=PASS ; 09 sous `structured_decision`, 10 sous `action_admissibility_and_plan`).
 E2 catalogue canonique + permissions (nécessaires au replay EXACT de 10 — injectés).
 E3 résultat d'exécution externe — OPTIONNEL, objet `EXECUTION_RESULT_SCHEMA` injecté + vérifiable.

@@ -5,10 +5,15 @@ impact_context) AVANT toute lecture des entrées de clôture, 10 statuts de clô
 humaine falsifiés/incomplets/hors-scope → BLOCKED, absence d'exécution = cas nominal, appariement de scope EXACT,
 anti-fuite/surrogate, closure_id (contexte complet, via _fingerprint) + CONTENT_SHA256, objet plat 21 clés, fail-closed.
 """
+import ast
 import base64
 import copy
+import math
+from pathlib import Path
+import secrets
 
 import pytest
+import zoran_v2.trace_and_close as trace_module
 
 from zoran_v2.structured_decision import _canonical_sha256, run_structured_decision
 from zoran_v2.action_admissibility_and_plan import run_action_admissibility_and_plan
@@ -48,10 +53,75 @@ from zoran_v2.trace_and_close import (
     run_trace_and_close as RUN,
 )
 
-_HUMAN_N = int("22257822511297263857735046943867968420363575251328596241453709180862563914629761888058994309982106830747179588599188430400836571089812443826062042432449881918181938580223032266390670012013862399618838440671750656254758513329245566374645313089292827740742932206721682681211206320174732905661849827015661555361708852513247096809620673616207725918929040652679953845687264753129470058933985159151847170690785957789838151818463892808287414766125927431038684393343433213441968208809731644556802698216173802994644887313107284943918200428027444395529306366159451132502370713668356646829951358976646279106235511933764247402693")
-_HUMAN_D = int("3015420932025887383872698598545367114947328894559314187082214937967613551993820259755615846464647924431947156145002735499358037529390607376301148347454329448724505045533900662758688395397532398196679155364363735587865437084731358964384730359820539455622340194553155318458336483440673356823552331532039993204832653141739074482637562696150108468658244152256925609649242166774878986347160895107874977028894484613025904400327029511848597881608239839829856186786049535579421129247447980076563319695464870614126793095825594641457499312661399075714633579953151598852060683903162666640371705821436499653631333993538713282513")
-_EXECUTOR_N = int("22454497963301209412983786996647158576330813716094883142833213543249203855375670753316479635856463834866453104227876146649273164753844711782749470874925091613706369341093154273904067185293106528429385131977428165602260299488713316957369273414857331253656719141539918933986602304330008249647594277806652250527882044401311637437216840752414142730266798231321700354610125080211887219196042399797041277519081103984074697532459852293037991864860833371157309416149030955721312744400538218498799024930036375527682005351509441871413674902069472806916176968917063107566673811068232598715730552683082658107368555170477698322927")
-_EXECUTOR_D = int("10484784464103666018454054317071242552658611104156088415634078219078391012409457078560420092110740162696885189572750536364004039721299097420080381051604745273919090916451197957075778750488228015162912997485500831738980553806305759629994290559603836342200224160547993183368036535330496474534855978947774064185418312140766186854432745886293951135767139672416826863632388913414743571141954195191324219980776634942485369054588490021844248276906487826056158665147818272763853126358246127350401309292069061785515167151575390548486050684650837012768050692187587682982343238122934098783001039682313505197825150215964481902473")
+
+def test_T1_aucun_materiel_prive_persistant_engine11():
+    root = Path(__file__).resolve().parents[1]
+    inspected = (
+        root / "zoran_v2" / "trace_and_close.py",
+        root / "tests" / "test_trace_and_close.py",
+        root / "specs" / "SPEC_ENGINE_11_TRACE_AND_CLOSE.md",
+    )
+    forbidden_pem = tuple(" ".join(parts) for parts in (
+        ("BEGIN", "PRIVATE", "KEY"),
+        ("BEGIN", "RSA", "PRIVATE", "KEY"),
+    ))
+    for path in inspected:
+        text = path.read_text(encoding="utf-8")
+        assert not any(marker in text for marker in forbidden_pem), path
+
+    for path in inspected[:2]:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = node.value
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, int):
+                continue
+            names = [target.id for target in targets if isinstance(target, ast.Name)]
+            assert not (value.value.bit_length() >= 512 and any(
+                name.lower().endswith(("_d", "_p", "_q", "private_key")) for name in names
+            )), (path, names)
+
+
+def _probable_prime(n, rounds=16):
+    if n < 2 or any(n % p == 0 for p in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29)):
+        return n in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29)
+    d, s = n - 1, 0
+    while d % 2 == 0:
+        s += 1
+        d //= 2
+    for _ in range(rounds):
+        a = secrets.randbelow(n - 3) + 2
+        x = pow(a, d, n)
+        if x in (1, n - 1):
+            continue
+        for _ in range(s - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def _ephemeral_rsa():
+    e = 65537
+    while True:
+        p = secrets.randbits(384) | (1 << 383) | 1
+        if _probable_prime(p) and math.gcd(e, p - 1) == 1:
+            break
+    while True:
+        q = secrets.randbits(384) | (1 << 383) | 1
+        if q != p and _probable_prime(q) and math.gcd(e, q - 1) == 1:
+            break
+    n = p * q
+    d = pow(e, -1, (p - 1) * (q - 1))
+    return n, e, d
+
+
+_TEST_HUMAN_N, _TEST_HUMAN_E, _TEST_HUMAN_D = _ephemeral_rsa()
+_TEST_EXECUTOR_N, _TEST_EXECUTOR_E, _TEST_EXECUTOR_D = _ephemeral_rsa()
 
 
 def _sign(obj, n, d, key_id):
@@ -63,7 +133,6 @@ def _sign(obj, n, d, key_id):
     signature = pow(int.from_bytes(encoded, "big"), d, n).to_bytes(size, "big")
     return {"algorithm": "RS256", "key_id": key_id,
             "signature_b64": base64.b64encode(signature).decode("ascii")}
-
 
 def _code(v):
     return (v["blocked_by"] or "").split("@")[0]
@@ -87,8 +156,8 @@ def _human_authority(plan, identity_ref="user://fred", action_id=None, target_re
         "identity_ref": identity_ref, "roles": ["ACTION_APPROVER"],
         "allowed_action_ids": [action_id if action_id is not None else "ACTION_APPLY_PATCH"],
         "allowed_target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]],
-        "provenance_refs": ["prov://human/1"], "key_id": "HUMAN-FRED-RSA-1",
-        "rsa_n": str(_HUMAN_N), "rsa_e": 65537,
+        "provenance_refs": ["prov://human/1"], "key_id": "TEST-HUMAN-EPHEMERAL",
+        "rsa_n": str(_TEST_HUMAN_N), "rsa_e": _TEST_HUMAN_E,
     }]}
     return registry, _canonical_sha256(registry)
 
@@ -99,8 +168,8 @@ def _executor_authority(plan, executor_id="EXECUTOR-1", action_id=None, target_r
         "allowed_action_ids": ([action_id] if action_id is not None
                                else ["ACTION_ANNOTATE", "ACTION_APPLY_PATCH"]),
         "allowed_target_refs": target_refs if target_refs is not None else [["OBJ-0001", "CODE"]],
-        "provenance_refs": ["prov://exec/1"], "key_id": "EXECUTOR-1-RSA-1",
-        "rsa_n": str(_EXECUTOR_N), "rsa_e": 65537,
+        "provenance_refs": ["prov://exec/1"], "key_id": "TEST-EXECUTOR-EPHEMERAL",
+        "rsa_n": str(_TEST_EXECUTOR_N), "rsa_e": _TEST_EXECUTOR_E,
     }]}
     return registry, _canonical_sha256(registry)
 
@@ -136,7 +205,8 @@ def _exec_result(plan, status="SUCCESS", anomalies=None, **over):
     }
     obj.update(over)
     if obj["authenticity_proof"] is None:
-        obj["authenticity_proof"] = _sign(obj, _EXECUTOR_N, _EXECUTOR_D, "EXECUTOR-1-RSA-1")
+        obj["authenticity_proof"] = _sign(
+            obj, _TEST_EXECUTOR_N, _TEST_EXECUTOR_D, "TEST-EXECUTOR-EPHEMERAL")
     obj["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in obj.items() if k != "CONTENT_SHA256"})
     return obj
 
@@ -150,7 +220,8 @@ def _human(plan, decision="APPROVED", **over):
     }
     obj.update(over)
     if obj["authenticity_proof"] is None:
-        obj["authenticity_proof"] = _sign(obj, _HUMAN_N, _HUMAN_D, "HUMAN-FRED-RSA-1")
+        obj["authenticity_proof"] = _sign(
+            obj, _TEST_HUMAN_N, _TEST_HUMAN_D, "TEST-HUMAN-EPHEMERAL")
     obj["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in obj.items() if k != "CONTENT_SHA256"})
     return obj
 
@@ -161,11 +232,26 @@ def _close(env, **kw):
     kw.setdefault("closed_at_context", "2026-07-15T00:00:00Z")
     human_authority, human_fp = _human_authority(_plan(env))
     executor_authority, executor_fp = _executor_authority(_plan(env))
+    # Les engagements du contexte de test sont figes depuis les registres
+    # nominaux, jamais recalcules depuis une entree adversariale injectee.
+    committed_human_fp = human_fp
+    committed_executor_fp = executor_fp
     human_authority = kw.pop("human_authority", human_authority)
     human_fp = kw.pop("human_authority_fingerprint", human_fp)
     executor_authority = kw.pop("executor_authority", executor_authority)
     executor_fp = kw.pop("executor_authority_fingerprint", executor_fp)
-    return RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **kw)
+    test_context = kw.pop("test_authority_context", True)
+    if not test_context:
+        return RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **kw)
+    previous = (trace_module.RUNTIME_HUMAN_AUTHORITY_COMMITMENT,
+                trace_module.RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT)
+    trace_module.RUNTIME_HUMAN_AUTHORITY_COMMITMENT = committed_human_fp
+    trace_module.RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT = committed_executor_fp
+    try:
+        return RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **kw)
+    finally:
+        (trace_module.RUNTIME_HUMAN_AUTHORITY_COMMITMENT,
+         trace_module.RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT) = previous
 
 
 # ---------- schéma & statuts de clôture nominaux ----------
@@ -205,6 +291,49 @@ def test_close_awaiting_human_approval():
     v = _close(_full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"]))
     assert v["close_status"] == CLOSED_AWAITING_HUMAN_APPROVAL
     assert "AWAITING_HUMAN_GO" in v["resumption_conditions"]
+
+
+@pytest.mark.parametrize("kind", ["human", "executor"])
+def test_runtime_sans_provisioning_bloque_toute_preuve_externe(kind):
+    if kind == "human":
+        env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+        kw = {"human_decision": _human(_plan(env))}
+    else:
+        env = _full_env(action_id="ACTION_ANNOTATE")
+        kw = {"execution_result": _exec_result(_plan(env))}
+    out = _close(env, test_authority_context=False, **kw)
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == trace_module.AUTHORITY_NOT_PROVISIONED
+
+
+def test_T2_anciens_key_ids_revoques_en_runtime():
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, _ = _human_authority(plan)
+    executor_authority, _ = _executor_authority(plan)
+    human_authority["identities"][0]["key_id"] = "HUMAN-FRED-RSA-1"
+    executor_authority["executors"][0]["key_id"] = "EXECUTOR-1-RSA-1"
+    out = _close(
+        env,
+        human_decision=_human(plan),
+        human_authority=human_authority,
+        executor_authority=executor_authority,
+        test_authority_context=False,
+    )
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == trace_module.AUTHORITY_NOT_PROVISIONED
+
+
+def test_autorite_ephemere_test_isolee_acceptee_scope_exact():
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    out = _close(env, human_decision=_human(_plan(env)),
+                 execution_result=_exec_result(_plan(env)))
+    assert out["status"] == PASS and out["closure_id"] is not None
+
+
+def test_flux_sans_preuve_externe_reste_fonctionnel_sans_provisioning():
+    out = _close(_full_env(action_id="ACTION_NONE"), test_authority_context=False)
+    assert out["status"] == PASS and out["close_status"] == CLOSED_NO_ACTION
 
 
 def test_close_human_declined():
