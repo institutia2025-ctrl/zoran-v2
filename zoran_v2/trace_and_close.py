@@ -108,6 +108,7 @@ AUTHORITY_MALFORMED = "11_CLOSE_AUTHORITY_MALFORMED"
 AUTHORITY_FINGERPRINT_MISMATCH = "11_CLOSE_AUTHORITY_FINGERPRINT_MISMATCH"
 AUTHORITY_NOT_PROVISIONED = "11_CLOSE_AUTHORITY_NOT_PROVISIONED"
 AUTHORITY_REVOKED = "11_CLOSE_AUTHORITY_REVOKED"
+PUBLIC_KEY_REVOKED = "11_CLOSE_PUBLIC_KEY_REVOKED"
 HUMAN_UNAUTHORIZED = "11_CLOSE_HUMAN_UNAUTHORIZED"
 EXECUTOR_UNAUTHORIZED = "11_CLOSE_EXECUTOR_UNAUTHORIZED"
 PROVENANCE_MALFORMED = "11_CLOSE_PROVENANCE_MALFORMED"
@@ -161,6 +162,10 @@ REVOKED_AUTHORITY_FINGERPRINTS = frozenset((
     "003fab738e2dd19fbb862377a7c384815c44ab8a6c173c6eb66b21ad1deed7ae",
     "5e3ffcd470eab2d83aea1d1e118504dc970fa8c02fc37197b6c6b29bde663368",
 ))
+REVOKED_PUBLIC_KEY_FINGERPRINTS = frozenset((
+    "e32212c3e77d546e860c82e4a33dc3dbfa2766458c5def9bde3f20b696cfc44b",
+    "1136245a1d1bf25e05ff56640c6bbc4fafb2ea14fccbe5302e369b2f5095292c",
+))
 
 ORDER_KEY = "trace_consolidation_puis_cloture"
 
@@ -212,6 +217,11 @@ def _normalized_authority(registry, kind):
             list_key: sorted(principals, key=lambda item: item[id_key])}
 
 
+def _public_key_fingerprint(rsa_n: str, rsa_e: int) -> str:
+    """Empreinte canonique de la seule matière publique, indépendante du registre et du key_id."""
+    return _canonical_sha256({"rsa_e": rsa_e, "rsa_n": rsa_n})
+
+
 def _validate_authority(registry, kind):
     expected = (RUNTIME_HUMAN_AUTHORITY_COMMITMENT if kind == "human"
                 else RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT)
@@ -243,6 +253,8 @@ def _validate_authority(registry, kind):
             raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
         if kind == "human" and not _valid_refs(principal["roles"]):
             raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
+        if _public_key_fingerprint(principal["rsa_n"], principal["rsa_e"]) in REVOKED_PUBLIC_KEY_FINGERPRINTS:
+            raise ValueError((PUBLIC_KEY_REVOKED, f"{kind}_authority.revoked_public_key"))
         if principal["key_id"] in REVOKED_AUTHORITY_KEY_IDS:
             raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_key_id"))
     actual_fingerprint = _canonical_sha256(_normalized_authority(registry, kind))

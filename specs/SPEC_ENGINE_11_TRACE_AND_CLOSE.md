@@ -29,6 +29,12 @@ immuables de révocation. ENGINE-11 les refuse avec `11_CLOSE_AUTHORITY_REVOKED`
 y compris si un futur engagement runtime est configuré exactement sur une ancienne empreinte ou sur un registre
 contenant un ancien `key_id`.
 
+La révocation couvre aussi la matière publique RSA elle-même. ENGINE-11 calcule pour chaque principal une empreinte
+canonique de `{rsa_n, rsa_e}`, indépendante du `key_id`, de l'ordre et de l'empreinte globale du registre. Les deux
+clés publiques historiquement compromises sont inscrites dans une deny-list immuable et provoquent
+`11_CLOSE_PUBLIC_KEY_REVOKED` avant toute lecture ou validation de signature, même réemballées sous un nouveau
+`key_id`, dans un nouveau registre engagé, ou mélangées à de nouvelles autorités.
+
 E1 enveloppe complète 00→10 (chaque porte status=PASS ; 09 sous `structured_decision`, 10 sous `action_admissibility_and_plan`).
 E2 catalogue canonique + permissions (nécessaires au replay EXACT de 10 — injectés).
 E3 résultat d'exécution externe — OPTIONNEL, objet `EXECUTION_RESULT_SCHEMA` injecté + vérifiable.

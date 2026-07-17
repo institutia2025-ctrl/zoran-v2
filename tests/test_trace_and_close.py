@@ -122,6 +122,8 @@ def _ephemeral_rsa():
 
 _TEST_HUMAN_N, _TEST_HUMAN_E, _TEST_HUMAN_D = _ephemeral_rsa()
 _TEST_EXECUTOR_N, _TEST_EXECUTOR_E, _TEST_EXECUTOR_D = _ephemeral_rsa()
+_REVOKED_HUMAN_PUBLIC_N = "22257822511297263857735046943867968420363575251328596241453709180862563914629761888058994309982106830747179588599188430400836571089812443826062042432449881918181938580223032266390670012013862399618838440671750656254758513329245566374645313089292827740742932206721682681211206320174732905661849827015661555361708852513247096809620673616207725918929040652679953845687264753129470058933985159151847170690785957789838151818463892808287414766125927431038684393343433213441968208809731644556802698216173802994644887313107284943918200428027444395529306366159451132502370713668356646829951358976646279106235511933764247402693"
+_REVOKED_EXECUTOR_PUBLIC_N = "22454497963301209412983786996647158576330813716094883142833213543249203855375670753316479635856463834866453104227876146649273164753844711782749470874925091613706369341093154273904067185293106528429385131977428165602260299488713316957369273414857331253656719141539918933986602304330008249647594277806652250527882044401311637437216840752414142730266798231321700354610125080211887219196042399797041277519081103984074697532459852293037991864860833371157309416149030955721312744400538218498799024930036375527682005351509441871413674902069472806916176968917063107566673811068232598715730552683082658107368555170477698322927"
 
 
 def _sign(obj, n, d, key_id):
@@ -372,6 +374,56 @@ def test_R1_ancienne_empreinte_reprovisionnee_reste_revoquee(monkeypatch, kind, 
               closed_at_context="2026-07-15T00:00:00Z")
     assert out["status"] == BLOCKED and out["closure_id"] is None
     assert _code(out) == "11_CLOSE_AUTHORITY_REVOKED"
+
+
+@pytest.mark.parametrize("kind,revoked_n", [
+    ("human", _REVOKED_HUMAN_PUBLIC_N),
+    ("executor", _REVOKED_EXECUTOR_PUBLIC_N),
+])
+def test_R2_cle_publique_compromise_reemballee_reste_revoquee(monkeypatch, kind, revoked_n):
+    env = _full_env(action_id=("ACTION_APPLY_PATCH" if kind == "human" else "ACTION_ANNOTATE"),
+                    granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, human_fp = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    authority = human_authority if kind == "human" else executor_authority
+    principal_key = "identities" if kind == "human" else "executors"
+    authority[principal_key][0]["key_id"] = f"NEW-{kind.upper()}-WRAPPER"
+    authority[principal_key][0]["rsa_n"] = revoked_n
+    injected_fp = _canonical_sha256(authority)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "human" else human_fp)
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "executor" else executor_fp)
+    proof = ({"human_decision": _human(plan, authenticity_proof={
+                 "algorithm": "RS256", "key_id": "NEW-HUMAN-WRAPPER", "signature_b64": "AA=="})}
+             if kind == "human" else
+             {"execution_result": _exec_result(plan, authenticity_proof={
+                 "algorithm": "RS256", "key_id": "NEW-EXECUTOR-WRAPPER", "signature_b64": "AA=="})})
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **proof,
+              provenance_refs=["prov://close/1"], ci_refs=["ci://run/1"],
+              closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == "11_CLOSE_PUBLIC_KEY_REVOKED"
+
+
+def test_R2_cle_publique_compromise_melangee_a_une_nouvelle_autorite_bloque(monkeypatch):
+    env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, _ = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    attacker = copy.deepcopy(human_authority["identities"][0])
+    attacker.update({"identity_ref": "user://rewrapped", "key_id": "NEW-MIXED-WRAPPER",
+                     "rsa_n": _REVOKED_HUMAN_PUBLIC_N})
+    human_authority["identities"].append(attacker)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        _canonical_sha256(human_authority))
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT", executor_fp)
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority,
+              human_decision=_human(plan), provenance_refs=["prov://close/1"],
+              ci_refs=["ci://run/1"], closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == "11_CLOSE_PUBLIC_KEY_REVOKED"
 
 
 def test_autorite_ephemere_test_isolee_acceptee_scope_exact():
