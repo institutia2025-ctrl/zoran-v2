@@ -38,7 +38,7 @@ def validate_results(rows: list[dict], expected_configurations=CONFIGS) -> None:
             raise Bench2ValidationError("duplicate RUN_ID")
         ids.add(row["run_id"])
         if row["tokens_total"] is None:
-            raise Bench2ValidationError("tokens must be measured")
+            raise Bench2ValidationError("tokens must be measured or UNAVAILABLE")
         if row["estimated_cost"] is None:
             raise Bench2ValidationError("cost must be numeric or UNAVAILABLE")
         if not row["score_justifications"]:

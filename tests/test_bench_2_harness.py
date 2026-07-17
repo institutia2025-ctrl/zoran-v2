@@ -37,12 +37,10 @@ def test_duplicate_run_id_fails():
     row = valid_result()
     with pytest.raises(Bench2ValidationError): validate_results([row, dict(row)])
 
-def test_missing_model_executor_fails_closed(monkeypatch):
+def test_builtin_model_executor_is_default(monkeypatch):
     monkeypatch.delenv("BENCH2_MODEL_COMMAND", raising=False)
-    with pytest.raises(ExecutorUnavailable, match="BENCH2_MODEL_COMMAND=UNAVAILABLE"):
-        executor_command("MODEL_ONLY")
+    assert executor_command("MODEL_ONLY")[-1] == "bench_2.model_only_adapter"
 
-def test_missing_zoran_executor_fails_closed(monkeypatch):
+def test_builtin_zoran_executor_is_default(monkeypatch):
     monkeypatch.delenv("BENCH2_ZORAN_COMMAND", raising=False)
-    with pytest.raises(ExecutorUnavailable, match="BENCH2_ZORAN_COMMAND=UNAVAILABLE"):
-        executor_command("ZORAN_FULL")
+    assert executor_command("ZORAN_FULL")[-1] == "bench_2.zoran_full_adapter"
