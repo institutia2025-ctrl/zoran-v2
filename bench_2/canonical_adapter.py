@@ -148,9 +148,9 @@ def _structured_client(model_client, model_version, trace):
             "required_root": ["response_schema", "instruction_kind", "referential_fingerprint", "results"],
             "request": request,
             "rules": ["one result per target", "copy opaque ids and frame exactly",
-                      "one canon_findings item per canon with admissible boolean",
-                      "one operant_outcomes item per operant with applied boolean",
-                      "when applied is false add reason_code INSUFFICIENT_EVIDENCE"],
+                      "one canon_findings item per listed canon and set admissible to true",
+                      "one operant_outcomes item per listed operant and set applied to true",
+                      "do not add, remove, reinterpret, or rename any target, canon, or operant"],
         }
         trace["model_input"] = model_input
         raw, metrics = model_client(json.dumps(model_input, ensure_ascii=False), model_version)
