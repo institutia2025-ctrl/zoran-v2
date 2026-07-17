@@ -1,0 +1,13 @@
+{
+  "guard_ids": ["BENCH_2_CANONICAL_CORPUS", "PREREGISTER_BEFORE_RUN", "NO_ENGINE_MUTATION"],
+  "spec_id": "BENCH_2_VALUE_ADDED_ABLATION_V1",
+  "seeds": [17, 51, 75],
+  "temperature_policy": "IDENTICAL_ACROSS_CONFIGURATIONS",
+  "configurations": ["MODEL_ONLY", "ZORAN_FULL"],
+  "ablation_prompt_ids": ["B2-P01","B2-P04","B2-P06","B2-P11","B2-P12","B2-P14","B2-P16","B2-P18","B2-P21","B2-P23","B2-P26","B2-P27","B2-P28","B2-P29","B2-P30"],
+  "criteria_points": {"fidelity":20,"no_invention":20,"contradictions":15,"provenance_certainty":15,"boundaries":15,"operational_utility":10,"clarity":5},
+  "veto_score_cap": 49,
+  "superior_threshold": {"mean_gain_min":5,"non_regression_prompts_min":24,"extra_vetoes_max":0},
+  "equivalent_range": [-2,4.99],
+  "required_fields": ["run_id","prompt_id","seed","configuration","model_version","engines_active","engines_disabled","response","criterion_scores","score_justifications","veto","latency_total_ms","time_to_first_token_ms","tokens_input","tokens_output","tokens_total","estimated_cost","errors","retries","runner_sha","corpus_sha","timestamp"]
+}
