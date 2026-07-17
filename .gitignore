@@ -27,6 +27,7 @@ reports/runtime_proofs/
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
 node_modules/
 .tools/
 dist/
