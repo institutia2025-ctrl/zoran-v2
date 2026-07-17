@@ -35,6 +35,11 @@ clés publiques historiquement compromises sont inscrites dans une deny-list imm
 `11_CLOSE_PUBLIC_KEY_REVOKED` avant toute lecture ou validation de signature, même réemballées sous un nouveau
 `key_id`, dans un nouveau registre engagé, ou mélangées à de nouvelles autorités.
 
+`rsa_n` est interprété dans une représentation unique : décimal ASCII, converti en entier base 10 puis réémis sans
+zéro initial avant calcul de l'empreinte publique et avant l'opération RSA. Les syntaxes non décimales, vides ou hors
+domaine sont `BLOCKED`. Les variantes à un ou plusieurs zéros initiaux sont ainsi ramenées à la même clé publique et
+restent couvertes par la deny-list avant toute validation de signature.
+
 E1 enveloppe complète 00→10 (chaque porte status=PASS ; 09 sous `structured_decision`, 10 sous `action_admissibility_and_plan`).
 E2 catalogue canonique + permissions (nécessaires au replay EXACT de 10 — injectés).
 E3 résultat d'exécution externe — OPTIONNEL, objet `EXECUTION_RESULT_SCHEMA` injecté + vérifiable.

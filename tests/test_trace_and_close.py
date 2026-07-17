@@ -426,6 +426,94 @@ def test_R2_cle_publique_compromise_melangee_a_une_nouvelle_autorite_bloque(monk
     assert _code(out) == "11_CLOSE_PUBLIC_KEY_REVOKED"
 
 
+@pytest.mark.parametrize("kind,revoked_n", [
+    ("human", _REVOKED_HUMAN_PUBLIC_N),
+    ("executor", _REVOKED_EXECUTOR_PUBLIC_N),
+])
+@pytest.mark.parametrize("zero_prefix", ["0", "0000"])
+def test_R3_cle_revoquee_zeros_initiaux_reste_bloquee(monkeypatch, kind, revoked_n, zero_prefix):
+    env = _full_env(action_id=("ACTION_APPLY_PATCH" if kind == "human" else "ACTION_ANNOTATE"),
+                    granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, human_fp = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    authority = human_authority if kind == "human" else executor_authority
+    principal_key = "identities" if kind == "human" else "executors"
+    authority[principal_key][0].update({
+        "key_id": f"R3-{kind.upper()}-WRAPPER",
+        "rsa_n": zero_prefix + revoked_n,
+    })
+    injected_fp = _canonical_sha256(authority)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "human" else human_fp)
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "executor" else executor_fp)
+    proof = ({"human_decision": _human(plan)} if kind == "human"
+             else {"execution_result": _exec_result(plan)})
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **proof,
+              provenance_refs=["prov://close/1"], ci_refs=["ci://run/1"],
+              closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == "11_CLOSE_PUBLIC_KEY_REVOKED"
+
+
+@pytest.mark.parametrize("kind,revoked_n", [
+    ("human", _REVOKED_HUMAN_PUBLIC_N),
+    ("executor", _REVOKED_EXECUTOR_PUBLIC_N),
+])
+def test_R3_cle_revoquee_zeros_melangee_a_autorite_saine_bloque(monkeypatch, kind, revoked_n):
+    env = _full_env(action_id=("ACTION_APPLY_PATCH" if kind == "human" else "ACTION_ANNOTATE"),
+                    granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, human_fp = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    authority = human_authority if kind == "human" else executor_authority
+    principal_key = "identities" if kind == "human" else "executors"
+    id_key = "identity_ref" if kind == "human" else "executor_id"
+    wrapped = copy.deepcopy(authority[principal_key][0])
+    wrapped.update({id_key: f"R3-{kind}-mixed", "key_id": f"R3-{kind.upper()}-MIXED",
+                    "rsa_n": "000" + revoked_n})
+    authority[principal_key].append(wrapped)
+    injected_fp = _canonical_sha256(authority)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "human" else human_fp)
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "executor" else executor_fp)
+    proof = ({"human_decision": _human(plan)} if kind == "human"
+             else {"execution_result": _exec_result(plan)})
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **proof,
+              provenance_refs=["prov://close/1"], ci_refs=["ci://run/1"],
+              closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+    assert _code(out) == "11_CLOSE_PUBLIC_KEY_REVOKED"
+
+
+@pytest.mark.parametrize("kind", ["human", "executor"])
+@pytest.mark.parametrize("invalid_n", [
+    "", "0", "1", "+123", " 123", "1.0", "not-decimal", "１２３", "١٢٣",
+])
+def test_R3_rsa_n_invalide_bloque_fail_closed(monkeypatch, kind, invalid_n):
+    env = _full_env(action_id=("ACTION_APPLY_PATCH" if kind == "human" else "ACTION_ANNOTATE"),
+                    granted=["PERM_WRITE"])
+    plan = _plan(env)
+    human_authority, human_fp = _human_authority(plan)
+    executor_authority, executor_fp = _executor_authority(plan)
+    authority = human_authority if kind == "human" else executor_authority
+    principal_key = "identities" if kind == "human" else "executors"
+    authority[principal_key][0]["rsa_n"] = invalid_n
+    injected_fp = _canonical_sha256(authority)
+    monkeypatch.setattr(trace_module, "RUNTIME_HUMAN_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "human" else human_fp)
+    monkeypatch.setattr(trace_module, "RUNTIME_EXECUTOR_AUTHORITY_COMMITMENT",
+                        injected_fp if kind == "executor" else executor_fp)
+    proof = ({"human_decision": _human(plan)} if kind == "human"
+             else {"execution_result": _exec_result(plan)})
+    out = RUN(env, _catalog(), env["permissions"], human_authority, executor_authority, **proof,
+              provenance_refs=["prov://close/1"], ci_refs=["ci://run/1"],
+              closed_at_context="2026-07-15T00:00:00Z")
+    assert out["status"] == BLOCKED and out["closure_id"] is None
+
+
 def test_autorite_ephemere_test_isolee_acceptee_scope_exact():
     env = _full_env(action_id="ACTION_APPLY_PATCH", granted=["PERM_WRITE"])
     out = _close(env, human_decision=_human(_plan(env)),

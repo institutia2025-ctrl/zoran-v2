@@ -217,9 +217,20 @@ def _normalized_authority(registry, kind):
             list_key: sorted(principals, key=lambda item: item[id_key])}
 
 
+def _canonical_rsa_n(rsa_n: str) -> str:
+    """Décimal ASCII minimal de n ; toute autre base ou syntaxe est refusée."""
+    if not (isinstance(rsa_n, str) and rsa_n
+            and all("0" <= char <= "9" for char in rsa_n)):
+        raise ValueError("rsa_n_not_ascii_decimal")
+    value = int(rsa_n, 10)
+    if value <= 1:
+        raise ValueError("rsa_n_out_of_range")
+    return str(value)
+
+
 def _public_key_fingerprint(rsa_n: str, rsa_e: int) -> str:
-    """Empreinte canonique de la seule matière publique, indépendante du registre et du key_id."""
-    return _canonical_sha256({"rsa_e": rsa_e, "rsa_n": rsa_n})
+    """Empreinte de (n,e) canoniques, indépendante du registre et du key_id."""
+    return _canonical_sha256({"rsa_e": rsa_e, "rsa_n": _canonical_rsa_n(rsa_n)})
 
 
 def _validate_authority(registry, kind):
@@ -248,12 +259,16 @@ def _validate_authority(registry, kind):
                 and isinstance(principal["allowed_target_refs"], list)
                 and _valid_refs(principal["provenance_refs"])
                 and isinstance(principal["key_id"], str) and principal["key_id"]
-                and isinstance(principal["rsa_n"], str) and principal["rsa_n"].isdigit()
+                and isinstance(principal["rsa_n"], str)
                 and isinstance(principal["rsa_e"], int) and principal["rsa_e"] > 1):
             raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.{list_key}"))
         if kind == "human" and not _valid_refs(principal["roles"]):
             raise ValueError((AUTHORITY_MALFORMED, "human_authority.roles"))
-        if _public_key_fingerprint(principal["rsa_n"], principal["rsa_e"]) in REVOKED_PUBLIC_KEY_FINGERPRINTS:
+        try:
+            public_key_fingerprint = _public_key_fingerprint(principal["rsa_n"], principal["rsa_e"])
+        except ValueError:
+            raise ValueError((AUTHORITY_MALFORMED, f"{kind}_authority.rsa_n")) from None
+        if public_key_fingerprint in REVOKED_PUBLIC_KEY_FINGERPRINTS:
             raise ValueError((PUBLIC_KEY_REVOKED, f"{kind}_authority.revoked_public_key"))
         if principal["key_id"] in REVOKED_AUTHORITY_KEY_IDS:
             raise ValueError((AUTHORITY_REVOKED, f"{kind}_authority.revoked_key_id"))
@@ -291,7 +306,7 @@ def _rsa_sha256_valid(obj, principal):
         return False
     try:
         signature = base64.b64decode(proof["signature_b64"], validate=True)
-        n, e = int(principal["rsa_n"]), principal["rsa_e"]
+        n, e = int(_canonical_rsa_n(principal["rsa_n"]), 10), principal["rsa_e"]
         size = (n.bit_length() + 7) // 8
         if len(signature) != size:
             return False
