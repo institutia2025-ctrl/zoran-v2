@@ -165,6 +165,10 @@ def test_caller_supplied_required_engines_cannot_substitute_authority():
 
     required_engines = [ATTACKER@9], sortie ATTACKER auto-attestée, deriver permissif.
     Attendu : NON_VERIFIABLE, integration=false, deriver_calls=0.
+
+    `required_engines` est INERTE : l'ensemble admis reste EXCLUSIVEMENT le canonique
+    (04+05) figé dans le gate ; la sortie ATTACKER est donc rejetée (ensemble != 04+05)
+    avant tout appel au deriver.
     """
     deriver_calls = {"n": 0}
 
@@ -183,14 +187,14 @@ def test_caller_supplied_required_engines_cannot_substitute_authority():
     )
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["integration"] is False
-    assert trace["reason"] == "REQUIRED_ENGINES_NOT_CANONICAL"
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_SET_MISMATCH"
     assert deriver_calls["n"] == 0
 
 
 def test_rogue_evaluator_outputs_rejected_against_canonical_set():
-    """Défense en profondeur : même sans substitution de `required_engines`, un évaluateur
-    qui émet des sorties de moteur NON canoniques est rejeté (ensemble != 04+05), sans
-    appeler le deriver."""
+    """Défense en profondeur : sans même fournir `required_engines`, un évaluateur qui émet
+    des sorties de moteur NON canoniques est rejeté (ensemble != 04+05), sans appeler le
+    deriver."""
     deriver_calls = {"n": 0}
 
     def _permissive(engine_outputs):
@@ -211,19 +215,26 @@ def test_rogue_evaluator_outputs_rejected_against_canonical_set():
     assert deriver_calls["n"] == 0
 
 
-def test_wrong_engine_version_is_rejected_against_frozen_canonical():
-    """Un ensemble 04+05 mais à une VERSION incorrecte (ex. 04@9.9.9) est une substitution
-    non canonique -> fail-closed avant tout appel deriver."""
-    trace = evaluate_frame_admissibility(
-        _request(), _attested_evaluator(), verdict_deriver=_stub_deriver(ADMISSIBLE),
-        required_engines=[
-            {"component_id": _ENGINE_04, "version": "9.9.9"},
-            {"component_id": _ENGINE_05, "version": "1.0.0"},
-        ],
-    )
-    assert trace["verdict"] == NON_VERIFIABLE
-    assert trace["integration"] is False
-    assert trace["reason"] == "REQUIRED_ENGINES_NOT_CANONICAL"
+def test_required_engines_param_is_fully_inert():
+    """`required_engines` est SUPPRIMÉ comme autorité : quelle que soit la valeur fournie
+    (bonne, fausse version, vide, absurde), seule compte l'attestation des VRAIES sorties
+    canoniques 04+05. Ici les sorties sont canoniques valides -> le verdict passe, PROUVANT
+    que le paramètre n'a aucun effet (ni positif ni négatif)."""
+    for bogus in (
+        None,
+        _REQUIRED,  # canonique
+        [{"component_id": _ENGINE_04, "version": "9.9.9"},
+         {"component_id": _ENGINE_05, "version": "1.0.0"}],  # mauvaise version
+        [{"component_id": "ATTACKER", "version": "9"}],       # absurde
+        [],                                                   # vide
+        "not-a-list",                                         # malformé
+    ):
+        trace = evaluate_frame_admissibility(
+            _request(), _attested_evaluator(),
+            verdict_deriver=_stub_deriver(ADMISSIBLE), required_engines=bogus,
+        )
+        assert trace["verdict"] == ADMISSIBLE, bogus
+        assert trace["integration"] is True, bogus
 
 
 def test_reference_evaluator_is_non_authoritative():

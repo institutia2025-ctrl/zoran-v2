@@ -74,14 +74,15 @@ ALLOWED_VERDICT_SOURCE = "ENGINES_04_05_08"
 GATE_FAIL_CLOSED_SOURCE = "GATE_FAIL_CLOSED"
 
 # --- Identités et versions CANONIQUES des moteurs, FIGÉES dans le gate ---
-# Autorité NON délégable : le gate n'accepte PLUS `required_engines` de l'appelant
-# comme source de vérité. Les seuls moteurs admis — ENGINE-04 et ENGINE-05 à leur
-# version canonique RÉELLE — sont définis IMMUABLEMENT ici. Tout autre component_id,
-# toute autre version, tout ensemble différent (moteur manquant, supplémentaire,
-# falsifié) est neutralisé fail-closed (`NON_VERIFIABLE`, integration=false), SANS
-# jamais appeler le `verdict_deriver`. Les littéraux sont épinglés volontairement :
-# si un moteur réel change de version, le gate refuse (fail-closed) jusqu'à re-gel
-# explicite du contrat — jamais une acceptation silencieuse.
+# `required_engines` est SUPPRIMÉ comme autorité : la valeur fournie par l'appelant
+# n'a plus AUCUN effet (paramètre inerte, conservé pour compat des sites d'appel).
+# L'ensemble des moteurs admis est déterminé EXCLUSIVEMENT par `CANONICAL_REQUIRED_ENGINES` :
+# ENGINE-04 et ENGINE-05, à leur version canonique RÉELLE, définis IMMUABLEMENT ici.
+# Tout moteur absent, supplémentaire, falsifié ou de mauvaise version est refusé
+# fail-closed (`NON_VERIFIABLE`, integration=false) SANS jamais appeler le
+# `verdict_deriver`. Les littéraux sont épinglés volontairement : si un moteur réel
+# change de version, le gate refuse (fail-closed) jusqu'à re-gel explicite du contrat —
+# jamais une acceptation silencieuse.
 ENGINE_04_CANONICAL_ID = "04_CANON_DETERMINATION"
 ENGINE_04_CANONICAL_VERSION = "1.0.0"
 ENGINE_05_CANONICAL_ID = "05_COHERENCE_ENGINE"
@@ -90,12 +91,6 @@ ENGINE_05_CANONICAL_VERSION = "1.0.0"
 CANONICAL_REQUIRED_ENGINES = (
     {"component_id": ENGINE_04_CANONICAL_ID, "version": ENGINE_04_CANONICAL_VERSION},
     {"component_id": ENGINE_05_CANONICAL_ID, "version": ENGINE_05_CANONICAL_VERSION},
-)
-
-# Empreinte normalisée (ordre-insensible) du contrat canonique : sert UNIQUEMENT à
-# détecter une tentative de substitution par l'appelant, jamais à lui déléguer l'autorité.
-_CANONICAL_ENGINE_FINGERPRINT = frozenset(
-    (e["component_id"], e["version"]) for e in CANONICAL_REQUIRED_ENGINES
 )
 
 # Entrées minimales exigées par le contrat (section "Evaluation input").
@@ -159,27 +154,6 @@ def stable_engine_digest(value):
 
 def _is_nonempty_str(value):
     return isinstance(value, str) and value.strip() != ""
-
-
-def _engine_set_fingerprint(engines):
-    """Empreinte normalisée (ordre-insensible) d'un ensemble {component_id, version}.
-
-    Retourne None si l'entrée est malformée (non séquence, dict incomplet, valeurs
-    vides). Sert exclusivement à comparer une proposition de l'appelant au contrat
-    canonique — sans jamais lui accorder d'autorité.
-    """
-    if not isinstance(engines, (list, tuple)) or not engines:
-        return None
-    pairs = []
-    for e in engines:
-        if not isinstance(e, dict):
-            return None
-        cid = e.get("component_id")
-        version = e.get("version")
-        if not (_is_nonempty_str(cid) and _is_nonempty_str(version)):
-            return None
-        pairs.append((cid, version))
-    return frozenset(pairs)
 
 
 def _engine_attestations_ok(engine_outputs, attestations, required_engines):
@@ -366,13 +340,12 @@ def evaluate_frame_admissibility(
             `evaluation["verdict"]` auto-déclaré. Si `verdict_deriver is None`, aucune
             intégration n'est possible : le gate renvoie `NON_VERIFIABLE`
             (`integration=false`). Il n'existe donc aucun chemin déclaratif d'intégration.
-        required_engines: NON AUTORITATIF. L'ensemble des moteurs admis est FIGÉ dans
-            le gate (`CANONICAL_REQUIRED_ENGINES` : ENGINE-04 ET ENGINE-05 aux versions
-            canoniques réelles) et lui seul fait autorité. Ce paramètre n'existe que pour
-            compat ascendante : s'il est fourni et ne correspond PAS exactement au contrat
-            canonique, c'est une tentative de substitution -> refus fail-closed
-            (`NON_VERIFIABLE`, integration=false) SANS appeler ni l'évaluateur ni le deriver.
-            Absent ou égal au canonique -> le gate applique le contrat canonique interne.
+        required_engines: SUPPRIMÉ comme autorité — paramètre INERTE. La valeur fournie
+            par l'appelant est totalement IGNORÉE (conservée en signature pour compat des
+            sites d'appel existants). L'ensemble des moteurs admis est déterminé
+            EXCLUSIVEMENT par `CANONICAL_REQUIRED_ENGINES` (ENGINE-04 ET ENGINE-05 aux
+            versions canoniques réelles), figé dans le gate. L'appelant ne peut ni élargir,
+            ni restreindre, ni substituer l'autorité des moteurs.
 
     Returns:
         Une trace complète (dict) incluant verdict, source, conséquence, disposition,
@@ -382,6 +355,8 @@ def evaluate_frame_admissibility(
         - provenance ou version absente (sans appeler l'évaluateur) ;
         - `verdict_deriver` absent (aucune autorité de dérivation) ;
         - source != ENGINES_04_05_08 (bridge/ZMOS/LLM) ;
+        - ensemble moteur != CANONICAL_REQUIRED_ENGINES (04+05) : moteur absent,
+          supplémentaire, falsifié ou de mauvaise version (vérifié AVANT le deriver) ;
         - sorties moteur absentes ou attestations manquantes/incohérentes ;
         - verdict dérivé hors des six valeurs / dérivation en erreur.
     """
@@ -402,17 +377,10 @@ def evaluate_frame_admissibility(
             request, candidate_ref, "VERDICT_DERIVER_REQUIRED", GATE_FAIL_CLOSED_SOURCE
         )
 
-    # IDENTITÉ CANONIQUE FIGÉE : l'ensemble des moteurs admis n'est JAMAIS celui fourni
-    # par l'appelant. Si `required_engines` est fourni et diffère du contrat canonique,
-    # c'est une tentative de substitution d'autorité -> refus fail-closed AVANT tout
-    # appel à l'évaluateur ou au deriver (deriver_calls=0).
-    if required_engines is not None and (
-        _engine_set_fingerprint(required_engines) != _CANONICAL_ENGINE_FINGERPRINT
-    ):
-        return _fail_closed_trace(
-            request, candidate_ref, "REQUIRED_ENGINES_NOT_CANONICAL", GATE_FAIL_CLOSED_SOURCE
-        )
-
+    # `required_engines` (fourni par l'appelant) est délibérément IGNORÉ ci-dessous :
+    # l'ensemble des moteurs admis est EXCLUSIVEMENT `CANONICAL_REQUIRED_ENGINES`, figé
+    # dans le gate. L'appelant ne peut donc ni élargir, ni restreindre, ni substituer
+    # l'autorité des moteurs.
     evaluation = coherence_evaluator(request)
 
     # Résultat d'évaluateur absent ou structurellement invalide -> fail-closed.
