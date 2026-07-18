@@ -1,9 +1,10 @@
 """Tests du FRAME_COHERENCE_ADMISSIBILITY_GATE (vertical slice, package ISOLÉ).
 
-Modèle d'autorité (post-fix bypass déclaratif) : une intégration n'est possible QUE via un
-verdict DÉRIVÉ par le gate à partir de sorties moteur RÉELLES et ATTESTÉES. Aucun
-`evaluation["verdict"]` auto-déclaré, et aucune absence de `verdict_deriver`, ne peut
-autoriser `integration=true`.
+Modèle d'autorité (post-fix) : une intégration n'est possible QUE via un verdict DÉRIVÉ par
+le gate à partir des sorties CONJOINTES, IDENTIFIÉES et ATTESTÉES des moteurs EXACTEMENT
+requis (04 ET 05). Aucun `evaluation["verdict"]` auto-déclaré, aucune absence de
+`verdict_deriver`, aucun ensemble de moteurs incomplet/étranger ne peut autoriser
+`integration=true`.
 """
 import copy
 
@@ -25,6 +26,17 @@ from zoran_reconstructive.frame_coherence_gate import (
     reference_coherence_evaluator,
     stable_engine_digest,
 )
+
+_ENGINE_04 = "04_CANON_DETERMINATION"
+_ENGINE_05 = "05_COHERENCE_ENGINE"
+_REQUIRED = [
+    {"component_id": _ENGINE_04, "version": "1.0.0"},
+    {"component_id": _ENGINE_05, "version": "1.0.0"},
+]
+_OUTPUTS_OK = {
+    _ENGINE_04: {"component": _ENGINE_04, "version": "1.0.0", "status": "PASS", "x": 1},
+    _ENGINE_05: {"component": _ENGINE_05, "version": "1.0.0", "status": "PASS", "y": 2},
+}
 
 
 def _signals(**overrides):
@@ -58,26 +70,32 @@ def _request(coherence_signals=None, provenance=None, version="FRAME_V1", **extr
     return req
 
 
-# --- Évaluateur attesté minimal (chemin autoritaire) : porte des sorties moteur + digests. ---
-def _attested_evaluator(engine_outputs, source=ALLOWED_VERDICT_SOURCE):
-    attestations = [
+def _attestations(engine_outputs):
+    return [
         {
             "component_id": cid,
-            "version": out.get("version", "1.0.0"),
+            "version": out.get("version"),
             "status": out.get("status"),
             "output_digest": stable_engine_digest(out),
         }
         for cid, out in engine_outputs.items()
     ]
 
+
+def _attested_evaluator(engine_outputs=None, source=ALLOWED_VERDICT_SOURCE, extra=None):
+    outputs = _OUTPUTS_OK if engine_outputs is None else engine_outputs
+
     def _ev(request):
-        return {
+        ev = {
             "source": source,
-            "engine_outputs": engine_outputs,
-            "attestations": attestations,
+            "engine_outputs": outputs,
+            "attestations": _attestations(outputs),
             "evidence_refs": ["ev-x"],
             "policy_version": "POLICY_V1",
         }
+        if extra:
+            ev.update(extra)
+        return ev
 
     return _ev
 
@@ -86,17 +104,22 @@ def _stub_deriver(verdict):
     return lambda engine_outputs: verdict
 
 
-_OUTPUTS_OK = {"05_COHERENCE_ENGINE": {"status": "PASS", "version": "1.0.0", "v": 1}}
+def _authorized(request, verdict, evaluator=None):
+    return evaluate_frame_admissibility(
+        request,
+        evaluator if evaluator is not None else _attested_evaluator(),
+        verdict_deriver=_stub_deriver(verdict),
+        required_engines=_REQUIRED,
+    )
 
 
-# ----------------------- CONTRE-TEST : bypass déclaratif Codex -----------------------
+# ----------------------- CONTRE-TEST : bypass déclaratif -----------------------
 
 
-def test_codex_bypass_selfdeclared_verdict_without_deriver_is_non_verifiable():
-    """Bypass Codex EXACT : verdict ADMISSIBLE auto-déclaré, sans sorties moteur, sans
-    verdict_deriver. AVANT le fix -> integration=true. APRÈS -> NON_VERIFIABLE, integration=false."""
+def test_selfdeclared_verdict_without_deriver_is_non_verifiable():
+    """Verdict ADMISSIBLE auto-déclaré, sans sorties moteur, sans deriver -> NON_VERIFIABLE."""
     def _liar(request):
-        return {"source": ALLOWED_VERDICT_SOURCE, "verdict": ADMISSIBLE}  # aucune sortie moteur
+        return {"source": ALLOWED_VERDICT_SOURCE, "verdict": ADMISSIBLE}
 
     trace = evaluate_frame_admissibility(_request(), _liar)  # PAS de verdict_deriver
     assert trace["verdict"] == NON_VERIFIABLE
@@ -104,52 +127,43 @@ def test_codex_bypass_selfdeclared_verdict_without_deriver_is_non_verifiable():
     assert trace["reason"] == "VERDICT_DERIVER_REQUIRED"
 
 
-def test_codex_bypass_selfdeclared_verdict_with_deriver_but_no_outputs():
-    """Même label menteur, mais avec un deriver permissif : bloqué car sorties moteur absentes."""
-    def _liar(request):
-        return {"source": ALLOWED_VERDICT_SOURCE, "verdict": ADMISSIBLE}
-
-    trace = evaluate_frame_admissibility(
-        _request(), _liar, verdict_deriver=_stub_deriver(ADMISSIBLE)
-    )
-    assert trace["verdict"] == NON_VERIFIABLE
-    assert trace["integration"] is False
-    assert "ATTESTATION" in trace["reason"]
-
-
 def test_selfdeclared_verdict_is_never_read_by_gate():
-    """Même avec sorties attestées, un `verdict` auto-déclaré est ignoré : seul le deriver décide."""
-    def _ev(request):
-        base = _attested_evaluator(_OUTPUTS_OK)(request)
-        base["verdict"] = ADMISSIBLE  # label menteur
-        return base
-
-    trace = evaluate_frame_admissibility(
-        _request(), _ev, verdict_deriver=_stub_deriver(CONDITIONNEL)
+    """Un `verdict` auto-déclaré est ignoré même avec sorties attestées : seul le deriver décide."""
+    trace = _authorized(
+        _request(), CONDITIONNEL,
+        evaluator=_attested_evaluator(extra={"verdict": ADMISSIBLE}),
     )
-    assert trace["verdict"] == CONDITIONNEL  # dérivé, pas le label
+    assert trace["verdict"] == CONDITIONNEL
     assert trace["integration"] is False
 
 
-# ----------------------- verdict_deriver requis -----------------------
+# ----------------------- verdict_deriver & required_engines requis -----------------------
 
 
 def test_no_deriver_even_with_attested_outputs_is_non_verifiable():
-    """Sans verdict_deriver, aucune intégration : NON_VERIFIABLE même avec sorties attestées."""
-    trace = evaluate_frame_admissibility(_request(), _attested_evaluator(_OUTPUTS_OK))
+    trace = evaluate_frame_admissibility(
+        _request(), _attested_evaluator(), required_engines=_REQUIRED
+    )
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["integration"] is False
     assert trace["reason"] == "VERDICT_DERIVER_REQUIRED"
 
 
+def test_required_engines_absent_is_non_verifiable():
+    trace = evaluate_frame_admissibility(
+        _request(), _attested_evaluator(), verdict_deriver=_stub_deriver(ADMISSIBLE)
+    )
+    assert trace["verdict"] == NON_VERIFIABLE
+    assert trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_REQUIRED_ENGINES_MISSING"
+
+
 def test_reference_evaluator_is_non_authoritative():
-    """L'évaluateur de référence ne porte pas de sorties moteur -> jamais d'intégration."""
-    # sans deriver
     t1 = evaluate_frame_admissibility(_request(), reference_coherence_evaluator)
     assert t1["verdict"] == NON_VERIFIABLE and t1["integration"] is False
-    # avec un deriver permissif : bloqué faute d'attestations
     t2 = evaluate_frame_admissibility(
-        _request(), reference_coherence_evaluator, verdict_deriver=_stub_deriver(ADMISSIBLE)
+        _request(), reference_coherence_evaluator,
+        verdict_deriver=_stub_deriver(ADMISSIBLE), required_engines=_REQUIRED,
     )
     assert t2["verdict"] == NON_VERIFIABLE and t2["integration"] is False
 
@@ -162,10 +176,11 @@ def test_missing_provenance_fails_closed_before_evaluator():
 
     def _spy(request):  # pragma: no cover — jamais appelé
         calls["n"] += 1
-        return _attested_evaluator(_OUTPUTS_OK)(request)
+        return _attested_evaluator()(request)
 
     trace = evaluate_frame_admissibility(
-        _request(provenance={}), _spy, verdict_deriver=_stub_deriver(ADMISSIBLE)
+        _request(provenance={}), _spy,
+        verdict_deriver=_stub_deriver(ADMISSIBLE), required_engines=_REQUIRED,
     )
     assert calls["n"] == 0
     assert trace["verdict"] == NON_VERIFIABLE
@@ -173,42 +188,22 @@ def test_missing_provenance_fails_closed_before_evaluator():
 
 
 def test_missing_version_fails_closed():
-    trace = evaluate_frame_admissibility(
-        _request(version=""), _attested_evaluator(_OUTPUTS_OK),
-        verdict_deriver=_stub_deriver(ADMISSIBLE),
-    )
+    trace = _authorized(_request(version=""), ADMISSIBLE)
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["reason"] == "INPUT_VERSION_MISSING"
 
 
-# ----------------------- Autorité & intégrité (chemin attesté) -----------------------
+# ----------------------- Autorité & intégrité -----------------------
 
 
 @pytest.mark.parametrize("bad_source", ["BRIDGE", "ZMOS", "LLM", None, "ORCHESTRATOR"])
 def test_non_engine_source_rejected(bad_source):
-    ev = _attested_evaluator(_OUTPUTS_OK, source=bad_source)
-    trace = evaluate_frame_admissibility(
-        _request(), ev, verdict_deriver=_stub_deriver(ADMISSIBLE)
+    trace = _authorized(
+        _request(), ADMISSIBLE, evaluator=_attested_evaluator(source=bad_source)
     )
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["reason"] == "AUTHORITY_VIOLATION"
     assert trace["integration"] is False
-
-
-def test_tampered_output_breaks_attestation():
-    engine_outputs = {"05_COHERENCE_ENGINE": {"status": "PASS", "version": "1.0.0", "v": 1}}
-    ev = _attested_evaluator(engine_outputs)
-
-    def _tamper(request):
-        base = ev(request)
-        base["engine_outputs"]["05_COHERENCE_ENGINE"]["v"] = 999  # sans refaire le digest
-        return base
-
-    trace = evaluate_frame_admissibility(
-        _request(), _tamper, verdict_deriver=_stub_deriver(ADMISSIBLE)
-    )
-    assert trace["verdict"] == NON_VERIFIABLE
-    assert "ATTESTATION" in trace["reason"]
 
 
 def test_derivation_error_fails_closed():
@@ -216,21 +211,19 @@ def test_derivation_error_fails_closed():
         raise RuntimeError("boom")
 
     trace = evaluate_frame_admissibility(
-        _request(), _attested_evaluator(_OUTPUTS_OK), verdict_deriver=_boom
+        _request(), _attested_evaluator(), verdict_deriver=_boom, required_engines=_REQUIRED
     )
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["reason"] == "VERDICT_DERIVATION_ERROR"
 
 
 def test_derived_verdict_out_of_set_fails_closed():
-    trace = evaluate_frame_admissibility(
-        _request(), _attested_evaluator(_OUTPUTS_OK), verdict_deriver=_stub_deriver("MAYBE")
-    )
+    trace = _authorized(_request(), "MAYBE")
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["reason"] == "VERDICT_AMBIGUOUS"
 
 
-# ----------------------- Table des six verdicts / conséquences (via gate attesté) -----------------------
+# ----------------------- Table des six verdicts / conséquences -----------------------
 
 
 @pytest.mark.parametrize(
@@ -245,9 +238,7 @@ def test_derived_verdict_out_of_set_fails_closed():
     ],
 )
 def test_mandatory_consequences_per_verdict(verdict, consequence, disposition, integration):
-    trace = evaluate_frame_admissibility(
-        _request(), _attested_evaluator(_OUTPUTS_OK), verdict_deriver=_stub_deriver(verdict)
-    )
+    trace = _authorized(_request(), verdict)
     assert trace["verdict"] == verdict
     assert trace["consequence"] == consequence
     assert trace["disposition"] == disposition
@@ -261,7 +252,6 @@ def test_verdict_set_and_maps_are_exactly_six():
     }
     assert set(CONSEQUENCE) == VERDICTS
     assert set(DISPOSITION) == VERDICTS
-    # Seul ADMISSIBLE porte l'intégration.
     assert CONSEQUENCE[ADMISSIBLE] == "INTEGRATION_POSSIBLE"
 
 
@@ -280,7 +270,6 @@ def test_verdict_set_and_maps_are_exactly_six():
     ],
 )
 def test_reference_mapping_is_illustrative_hint_only(signals, expected_hint):
-    # Appel DIRECT : on inspecte l'indice, sans passer par le gate (non autoritatif).
     hint = reference_coherence_evaluator(_request(coherence_signals=signals))["verdict"]
     assert hint == expected_hint
 
@@ -289,20 +278,15 @@ def test_reference_mapping_is_illustrative_hint_only(signals, expected_hint):
 
 
 def test_deterministic_same_input_same_trace():
-    ev = _attested_evaluator(_OUTPUTS_OK)
     req = _request()
-    t1 = evaluate_frame_admissibility(req, ev, verdict_deriver=_stub_deriver(CONDITIONNEL))
-    t2 = evaluate_frame_admissibility(
-        copy.deepcopy(req), ev, verdict_deriver=_stub_deriver(CONDITIONNEL)
-    )
+    t1 = _authorized(req, CONDITIONNEL)
+    t2 = _authorized(copy.deepcopy(req), CONDITIONNEL)
     assert t1 == t2
     assert t1["trace_digest"] == t2["trace_digest"]
 
 
 def test_trace_is_complete_and_conserves_engine_outputs():
-    trace = evaluate_frame_admissibility(
-        _request(), _attested_evaluator(_OUTPUTS_OK), verdict_deriver=_stub_deriver(ADMISSIBLE)
-    )
+    trace = _authorized(_request(), ADMISSIBLE)
     for key in (
         "component_id", "run_id", "trace_id", "candidate_frame_ref", "input_digest",
         "verdict", "verdict_source", "consequence", "disposition", "integration",

@@ -131,33 +131,70 @@ def _is_nonempty_str(value):
     return isinstance(value, str) and value.strip() != ""
 
 
-def _attestations_ok(engine_outputs, attestations):
-    """Vraie autorité (non usurpable par label) : chaque attestation doit correspondre
-    EXACTEMENT à une sortie moteur réellement fournie (digest recalculé identique).
+def _engine_attestations_ok(engine_outputs, attestations, required_engines):
+    """Autorité NON usurpable : intégration impossible sans les sorties CONJOINTES,
+    IDENTIFIÉES et ATTESTÉES des moteurs EXACTEMENT requis.
 
-    Retourne (ok, reason). Exige : `engine_outputs` dict non vide ; `attestations` liste non
-    vide ; chaque attestation {component_id, version, status, output_digest} dont le
-    component_id indexe `engine_outputs` et dont output_digest == digest(engine_outputs[cid]).
+    `required_engines` = séquence de {component_id, version} attendus (ex. 04 puis 05).
+    Retourne (ok, reason). Exige, avant tout `verdict_deriver` :
+      - `engine_outputs` porte EXACTEMENT l'ensemble requis (aucun moteur manquant,
+        aucune clé supplémentaire, aucun component_id arbitraire) ;
+      - une attestation par moteur requis, sans doublon (bloque attestation croisée/réutilisée) ;
+      - pour chaque moteur : component_id canonique (la sortie s'auto-identifie via `component`),
+        version attendue (attestation ET sortie), status cohérent (attestation == sortie, non vide),
+        digest recalculé == output_digest (lie l'attestation À CETTE sortie précise).
     """
+    if not isinstance(required_engines, (list, tuple)) or not required_engines:
+        return False, "REQUIRED_ENGINES_MISSING"
+    required_ids = [r.get("component_id") for r in required_engines]
+    required_set = set(required_ids)
+    if len(required_set) != len(required_ids):
+        return False, "REQUIRED_ENGINES_MALFORMED"
+    expected_version = {r.get("component_id"): r.get("version") for r in required_engines}
+
     if not isinstance(engine_outputs, dict) or not engine_outputs:
         return False, "ENGINE_OUTPUTS_MISSING"
     if not isinstance(attestations, list) or not attestations:
         return False, "ATTESTATIONS_MISSING"
-    attested_ids = set()
+
+    # Ensemble de sorties EXACTEMENT = ensemble requis (04 ET 05, rien d'autre, rien en trop).
+    if set(engine_outputs.keys()) != required_set:
+        return False, "ENGINE_SET_MISMATCH"
+    if len(attestations) != len(required_ids):
+        return False, "ATTESTATION_COUNT_MISMATCH"
+
+    seen = set()
     for att in attestations:
         if not isinstance(att, dict):
             return False, "ATTESTATION_MALFORMED"
         cid = att.get("component_id")
+        version = att.get("version")
+        status = att.get("status")
         digest = att.get("output_digest")
         if not (_is_nonempty_str(cid) and _is_nonempty_str(digest)):
             return False, "ATTESTATION_MALFORMED"
-        if cid not in engine_outputs:
+        if cid not in required_set:
             return False, "ATTESTATION_UNKNOWN_ENGINE"
-        if stable_engine_digest(engine_outputs[cid]) != digest:
+        if cid in seen:  # attestation réutilisée / croisée
+            return False, "ATTESTATION_DUPLICATE"
+        seen.add(cid)
+        out = engine_outputs[cid]
+        if not isinstance(out, dict):
+            return False, "ENGINE_OUTPUT_MALFORMED"
+        # component_id canonique : la sortie doit s'auto-identifier au même id.
+        if out.get("component") != cid:
+            return False, "ENGINE_COMPONENT_MISMATCH"
+        # version attendue, cohérente entre attestation et sortie.
+        if version != expected_version[cid] or out.get("version") != expected_version[cid]:
+            return False, "ENGINE_VERSION_MISMATCH"
+        # status cohérent (non vide) entre attestation et sortie.
+        if not _is_nonempty_str(status) or out.get("status") != status:
+            return False, "ENGINE_STATUS_MISMATCH"
+        # digest lie l'attestation À CETTE sortie (bloque croisement/réutilisation).
+        if stable_engine_digest(out) != digest:
             return False, "ATTESTATION_DIGEST_MISMATCH"
-        attested_ids.add(cid)
-    # Toute sortie moteur embarquée doit être attestée (pas de sortie « clandestine »).
-    if attested_ids != set(engine_outputs.keys()):
+
+    if seen != required_set:
         return False, "ATTESTATION_COVERAGE_MISMATCH"
     return True, "OK"
 
@@ -259,7 +296,9 @@ def _build_trace(
     return trace
 
 
-def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=None):
+def evaluate_frame_admissibility(
+    request, coherence_evaluator, verdict_deriver=None, required_engines=None
+):
     """Gate d'admissibilité d'un cadre par cohérence.
 
     Args:
@@ -276,6 +315,10 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
             `evaluation["verdict"]` auto-déclaré. Si `verdict_deriver is None`, aucune
             intégration n'est possible : le gate renvoie `NON_VERIFIABLE`
             (`integration=false`). Il n'existe donc aucun chemin déclaratif d'intégration.
+        required_engines: séquence {component_id, version} des moteurs EXACTEMENT requis
+            (04 ET 05). Le gate exige l'ensemble exact, la version attendue, un status
+            cohérent et un digest liant chaque attestation à sa sortie, AVANT le deriver ;
+            sinon `NON_VERIFIABLE`. Absent -> `NON_VERIFIABLE` (fail-closed).
 
     Returns:
         Une trace complète (dict) incluant verdict, source, conséquence, disposition,
@@ -322,8 +365,9 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
     engine_outputs = evaluation.get("engine_outputs")
     attestations = evaluation.get("attestations")
 
-    # Sorties moteur RÉELLES et attestées obligatoires (digests recalculés identiques).
-    ok, att_reason = _attestations_ok(engine_outputs, attestations)
+    # Sorties CONJOINTES, IDENTIFIÉES et ATTESTÉES des moteurs EXACTEMENT requis (04 ET 05),
+    # vérifiées AVANT tout appel au deriver (fail-closed).
+    ok, att_reason = _engine_attestations_ok(engine_outputs, attestations, required_engines)
     if not ok:
         return _fail_closed_trace(
             request, candidate_ref, "ENGINE_ATTESTATION_" + att_reason,

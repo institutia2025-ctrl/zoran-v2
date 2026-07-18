@@ -11,6 +11,7 @@ import pytest
 from zoran_reconstructive.engine_0405_adapter import (
     ENGINE_04_KEY,
     ENGINE_05_KEY,
+    REQUIRED_ENGINES,
     derive_verdict_from_engine_outputs,
     evaluate_frame,
     project_frame,
@@ -186,6 +187,7 @@ def test_verdict_derived_by_gate_not_from_label():
         _request(grounding=[], operants=[_operant("OP_A")]),
         _liar,
         verdict_deriver=derive_verdict_from_engine_outputs,
+        required_engines=REQUIRED_ENGINES,
     )
     assert trace["verdict"] == CONDITIONNEL  # dérivé, pas le label ADMISSIBLE
 
@@ -203,6 +205,7 @@ def test_tampered_engine_output_breaks_attestation():
         _request(grounding=[_canon("A", 10), _canon("B", 10)], operants=[_operant("OP_A")]),
         _tamper,
         verdict_deriver=derive_verdict_from_engine_outputs,
+        required_engines=REQUIRED_ENGINES,
     )
     assert trace["verdict"] == NON_VERIFIABLE
     assert "ATTESTATION" in trace["reason"]
@@ -219,6 +222,7 @@ def test_fake_source_from_bridge_rejected():
         _request(grounding=[_canon("CANON_A", 10)], operants=[_operant("OP_A")]),
         _bridge,
         verdict_deriver=derive_verdict_from_engine_outputs,
+        required_engines=REQUIRED_ENGINES,
     )
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["reason"] == "AUTHORITY_VIOLATION"
@@ -233,6 +237,7 @@ def test_empty_engine_outputs_fail_closed():
         _request(grounding=[_canon("CANON_A", 10)], operants=[_operant("OP_A")]),
         _empty,
         verdict_deriver=derive_verdict_from_engine_outputs,
+        required_engines=REQUIRED_ENGINES,
     )
     assert trace["verdict"] == NON_VERIFIABLE
     assert "ATTESTATION" in trace["reason"]
@@ -257,3 +262,123 @@ def test_attestation_digest_matches_embedded_output():
     for att in attestations:
         cid = att["component_id"]
         assert att["output_digest"] == stable_engine_digest(engine_outputs[cid])
+
+
+# ----------------------- Contre-tests : moteurs conjoints, identifiés, attestés -----------------------
+
+_PERMISSIVE = lambda engine_outputs: ADMISSIBLE  # deriver menteur : ne doit JAMAIS être atteint
+
+
+def _valid_parts():
+    """Sorties + attestations RÉELLES valides (04 ET 05) pour un cas ADMISSIBLE."""
+    req = _request(grounding=[_canon("CANON_A", 10)], operants=[_operant("OP_A")])
+    engine_outputs, attestations = run_real_engines(req)
+    return req, engine_outputs, attestations
+
+
+def _evaluator(engine_outputs, attestations, source=ALLOWED_VERDICT_SOURCE):
+    def _ev(request):
+        return {
+            "source": source,
+            "engine_outputs": engine_outputs,
+            "attestations": attestations,
+            "evidence_refs": [],
+            "policy_version": "P",
+        }
+    return _ev
+
+
+def _run(engine_outputs, attestations, request, deriver=_PERMISSIVE):
+    return evaluate_frame_admissibility(
+        request,
+        _evaluator(engine_outputs, attestations),
+        verdict_deriver=deriver,
+        required_engines=REQUIRED_ENGINES,
+    )
+
+
+def test_valid_attested_path_still_authorizes():
+    """Contrôle positif : sorties conjointes 04+05 valides + deriver -> le verdict passe."""
+    req, eo, att = _valid_parts()
+    trace = _run(eo, att, req)  # deriver permissif -> ADMISSIBLE légitime
+    assert trace["verdict"] == ADMISSIBLE
+    assert trace["integration"] is True
+
+
+def test_counter1_engine04_absent():
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    del eo[ENGINE_04_KEY]
+    att = [a for a in att if a["component_id"] != ENGINE_04_KEY]
+    trace = _run(eo, att, req)
+    assert trace["verdict"] == NON_VERIFIABLE and trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_SET_MISMATCH"
+
+
+def test_counter2_engine05_absent():
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    del eo[ENGINE_05_KEY]
+    att = [a for a in att if a["component_id"] != ENGINE_05_KEY]
+    trace = _run(eo, att, req)
+    assert trace["verdict"] == NON_VERIFIABLE and trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_SET_MISMATCH"
+
+
+def test_counter3_attacker_identifier():
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    eo["ATTACKER"] = {"component": "ATTACKER", "version": "1.0.0", "status": "PASS"}
+    att.append({
+        "component_id": "ATTACKER", "version": "1.0.0", "status": "PASS",
+        "output_digest": stable_engine_digest(eo["ATTACKER"]),
+    })
+    trace = _run(eo, att, req)
+    assert trace["verdict"] == NON_VERIFIABLE and trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_SET_MISMATCH"
+
+
+def test_counter4_attestation04_applied_to_05():
+    """Croisement : l'attestation de 05 reçoit le digest de 04 -> digest ne lie plus sa sortie."""
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    d04 = next(a["output_digest"] for a in att if a["component_id"] == ENGINE_04_KEY)
+    for a in att:
+        if a["component_id"] == ENGINE_05_KEY:
+            a["output_digest"] = d04  # digest de 04 appliqué à l'attestation de 05
+    trace = _run(eo, att, req)
+    assert trace["verdict"] == NON_VERIFIABLE and trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ATTESTATION_DIGEST_MISMATCH"
+
+
+def test_counter5_wrong_version():
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    for a in att:
+        if a["component_id"] == ENGINE_05_KEY:
+            a["version"] = "9.9.9"
+    trace = _run(eo, att, req)
+    assert trace["verdict"] == NON_VERIFIABLE and trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_VERSION_MISMATCH"
+
+
+def test_counter6_incoherent_status():
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    for a in att:
+        if a["component_id"] == ENGINE_04_KEY:
+            a["status"] = "BLOCKED"  # incohérent avec la sortie (PASS)
+    trace = _run(eo, att, req)
+    assert trace["verdict"] == NON_VERIFIABLE and trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_STATUS_MISMATCH"
+
+
+def test_counter7_permissive_deriver_cannot_rescue_invalid_inputs():
+    """Un deriver permissif retournant ADMISSIBLE ne peut RIEN sauver : blocage AVANT le deriver."""
+    req, eo, att = _valid_parts()
+    eo = copy.deepcopy(eo); att = copy.deepcopy(att)
+    del eo[ENGINE_04_KEY]  # entrée invalide
+    att = [a for a in att if a["component_id"] != ENGINE_04_KEY]
+    trace = _run(eo, att, req, deriver=_PERMISSIVE)
+    assert trace["verdict"] == NON_VERIFIABLE  # jamais ADMISSIBLE
+    assert trace["integration"] is False

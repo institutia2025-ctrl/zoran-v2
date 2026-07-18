@@ -24,11 +24,13 @@ from __future__ import annotations
 from zoran_v2.canon_determination import (
     COMPONENT_ID as CD_COMPONENT_ID,
     PASS as CD_PASS,
+    VERSION as CD_VERSION,
     run_canon_determination,
 )
 from zoran_v2.coherence_engine import (
     COMPONENT_ID as CE_COMPONENT_ID,
     PASS as CE_PASS,
+    VERSION as CE_VERSION,
     run_coherence_engine,
 )
 
@@ -51,6 +53,12 @@ _OA_ORDER_KEY = "object_frame_map_order_puis_operant_id_alphabetique"
 # Clés attendues des sorties moteur (indexation stable des attestations).
 ENGINE_04_KEY = CD_COMPONENT_ID  # "04_CANON_DETERMINATION"
 ENGINE_05_KEY = CE_COMPONENT_ID  # "05_COHERENCE_ENGINE"
+
+# Contrat d'attestation exigé par le gate : EXACTEMENT 04 puis 05, aux versions RÉELLES.
+REQUIRED_ENGINES = (
+    {"component_id": ENGINE_04_KEY, "version": CD_VERSION},
+    {"component_id": ENGINE_05_KEY, "version": CE_VERSION},
+)
 
 
 class ProjectionError(ValueError):
@@ -257,9 +265,14 @@ def real_coherence_evaluator(request):
 
 
 def evaluate_frame(request):
-    """Point d'entrée RÉEL : gate + adaptateur 04/05 + dérivation gate-side du verdict."""
+    """Point d'entrée RÉEL : gate + adaptateur 04/05 + dérivation gate-side du verdict.
+
+    Impose au gate le contrat d'attestation EXACT (04 ET 05, versions réelles) : aucune
+    intégration sans sorties conjointes, identifiées et attestées des vrais moteurs.
+    """
     return evaluate_frame_admissibility(
         request,
         real_coherence_evaluator,
         verdict_deriver=derive_verdict_from_engine_outputs,
+        required_engines=REQUIRED_ENGINES,
     )
