@@ -269,23 +269,24 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
         coherence_evaluator: callable représentant les moteurs 04/05/08. Reçoit
             `request` et retourne un dict {source, evidence_refs, policy_version, ...}.
             Le gate n'émet jamais le verdict lui-même.
-        verdict_deriver: OPTIONNEL. Sur le chemin RÉEL (câblage 04/05), callable pur
-            `engine_outputs -> verdict`. Quand fourni, le gate IGNORE tout `verdict`
-            auto-déclaré et **dérive lui-même** le verdict des sorties moteur réelles
-            embarquées (`evaluation["engine_outputs"]`), après vérification que chaque
-            sortie est attestée (digest recalculé). Aucun verdict ne peut donc être
-            fabriqué par un simple label. Quand absent, chemin séminal documentaire :
-            le gate lit `evaluation["verdict"]` (source ENGINES_04_05_08 requise).
+        verdict_deriver: callable pur `engine_outputs -> verdict`, REQUIS. C'est la SEULE
+            voie d'autorisation : le gate dérive lui-même le verdict des sorties moteur
+            RÉELLES et attestées (`evaluation["engine_outputs"]`), après vérification que
+            chaque sortie est attestée (digest recalculé). Le gate ne lit JAMAIS un
+            `evaluation["verdict"]` auto-déclaré. Si `verdict_deriver is None`, aucune
+            intégration n'est possible : le gate renvoie `NON_VERIFIABLE`
+            (`integration=false`). Il n'existe donc aucun chemin déclaratif d'intégration.
 
     Returns:
         Une trace complète (dict) incluant verdict, source, conséquence, disposition,
         intégration (bool), fail_closed (bool), sorties moteur réelles, digests.
 
-    Règles fail-closed :
-        - provenance ou version absente -> NON_VERIFIABLE (sans appeler l'évaluateur) ;
-        - source != ENGINES_04_05_08 (bridge/ZMOS/LLM) -> NON_VERIFIABLE ;
-        - attestations manquantes/incohérentes (chemin réel) -> NON_VERIFIABLE ;
-        - verdict dérivé/déclaré hors des six valeurs -> NON_VERIFIABLE.
+    Règles fail-closed (toutes -> NON_VERIFIABLE, integration=false) :
+        - provenance ou version absente (sans appeler l'évaluateur) ;
+        - `verdict_deriver` absent (aucune autorité de dérivation) ;
+        - source != ENGINES_04_05_08 (bridge/ZMOS/LLM) ;
+        - sorties moteur absentes ou attestations manquantes/incohérentes ;
+        - verdict dérivé hors des six valeurs / dérivation en erreur.
     """
     reason, candidate_ref = _validate_inputs(request)
     if reason is not None:
@@ -297,6 +298,13 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
     if not callable(coherence_evaluator):
         raise GateInputError("coherence_evaluator MUST be callable (engines 04/05/08 seam)")
 
+    # AUTORITÉ UNIQUE : sans dérivation à partir de sorties moteur RÉELLES et attestées,
+    # aucune intégration n'est possible. Un verdict auto-déclaré ne peut RIEN autoriser.
+    if verdict_deriver is None:
+        return _fail_closed_trace(
+            request, candidate_ref, "VERDICT_DERIVER_REQUIRED", GATE_FAIL_CLOSED_SOURCE
+        )
+
     evaluation = coherence_evaluator(request)
 
     # Résultat d'évaluateur absent ou structurellement invalide -> fail-closed.
@@ -305,10 +313,8 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
             request, candidate_ref, "EVALUATOR_RESULT_INVALID", GATE_FAIL_CLOSED_SOURCE
         )
 
-    source = evaluation.get("source")
-
     # Autorité : seuls les moteurs 04/05/08 décident. Bridge/ZMOS/LLM -> refus.
-    if source != ALLOWED_VERDICT_SOURCE:
+    if evaluation.get("source") != ALLOWED_VERDICT_SOURCE:
         return _fail_closed_trace(
             request, candidate_ref, "AUTHORITY_VIOLATION", GATE_FAIL_CLOSED_SOURCE
         )
@@ -316,39 +322,21 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
     engine_outputs = evaluation.get("engine_outputs")
     attestations = evaluation.get("attestations")
 
-    if verdict_deriver is not None:
-        # --- Chemin RÉEL : verdict dérivé par le gate des sorties moteur attestées. ---
-        ok, att_reason = _attestations_ok(engine_outputs, attestations)
-        if not ok:
-            return _fail_closed_trace(
-                request, candidate_ref, "ENGINE_ATTESTATION_" + att_reason,
-                GATE_FAIL_CLOSED_SOURCE,
-            )
-        try:
-            verdict = verdict_deriver(engine_outputs)
-        except Exception:  # noqa: BLE001 — dérivation défaillante -> fail-closed, jamais un crash
-            return _fail_closed_trace(
-                request, candidate_ref, "VERDICT_DERIVATION_ERROR",
-                GATE_FAIL_CLOSED_SOURCE,
-            )
-        if verdict not in VERDICTS:
-            return _fail_closed_trace(
-                request, candidate_ref, "VERDICT_AMBIGUOUS", GATE_FAIL_CLOSED_SOURCE
-            )
-        return _build_trace(
-            request=request,
-            candidate_ref=candidate_ref,
-            verdict=verdict,
-            verdict_source=ALLOWED_VERDICT_SOURCE,
-            evidence_refs=evaluation.get("evidence_refs"),
-            policy_version=evaluation.get("policy_version"),
-            reason="OK",
-            engine_outputs=engine_outputs,
-            attestations=attestations,
+    # Sorties moteur RÉELLES et attestées obligatoires (digests recalculés identiques).
+    ok, att_reason = _attestations_ok(engine_outputs, attestations)
+    if not ok:
+        return _fail_closed_trace(
+            request, candidate_ref, "ENGINE_ATTESTATION_" + att_reason,
+            GATE_FAIL_CLOSED_SOURCE,
         )
 
-    # --- Chemin séminal documentaire (rétro-compatible) : verdict auto-déclaré. ---
-    verdict = evaluation.get("verdict")
+    # Le gate DÉRIVE lui-même le verdict des sorties réelles (jamais un label).
+    try:
+        verdict = verdict_deriver(engine_outputs)
+    except Exception:  # noqa: BLE001 — dérivation défaillante -> fail-closed, jamais un crash
+        return _fail_closed_trace(
+            request, candidate_ref, "VERDICT_DERIVATION_ERROR", GATE_FAIL_CLOSED_SOURCE
+        )
     if verdict not in VERDICTS:
         return _fail_closed_trace(
             request, candidate_ref, "VERDICT_AMBIGUOUS", GATE_FAIL_CLOSED_SOURCE
@@ -362,10 +350,15 @@ def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=N
         evidence_refs=evaluation.get("evidence_refs"),
         policy_version=evaluation.get("policy_version"),
         reason="OK",
+        engine_outputs=engine_outputs,
+        attestations=attestations,
     )
 
 
-# --- Évaluateur de référence 04/05/08 (seam de démonstration, aucun seuil numérique) ---
+# --- Évaluateur de référence — ILLUSTRATIF, NON AUTORITATIF (aucun seuil numérique) ---
+# Il ne porte AUCUNE sortie moteur attestée ni `verdict_deriver` : passé au gate, il aboutit
+# TOUJOURS à `NON_VERIFIABLE` (integration=false). Le champ `verdict` qu'il renvoie est un
+# indice pédagogique du mapping signaux->verdict, jamais une autorité d'intégration.
 
 # Dimensions minimales que les moteurs 04/05/08 DOIVENT évaluer (contrat).
 COHERENCE_DIMENSIONS = (
@@ -388,12 +381,12 @@ _ALLOWED_SIGNALS = frozenset(
 
 
 def reference_coherence_evaluator(request):
-    """Évaluateur 04/05/08 de référence : signaux structurels -> verdict déterministe.
+    """Évaluateur de référence ILLUSTRATIF et NON AUTORITATIF : signaux -> verdict indicatif.
 
-    Ne calcule AUCUN score et n'invente AUCUN seuil : il agrège des signaux de
-    dimension explicites (`candidate_frame.coherence_signals`) par priorité stable.
-    Représente la place où les vrais moteurs 04/05/08 se branchent, via la même
-    interface, sans modifier ces moteurs.
+    Ne calcule AUCUN score, n'invente AUCUN seuil, et ne porte NI sorties moteur attestées
+    NI autorité : soumis au gate il aboutit toujours à `NON_VERIFIABLE`. Le `verdict` renvoyé
+    n'est qu'un indice du mapping signaux->verdict. La vraie autorité est le câblage réel
+    04/05 (`engine_0405_adapter`). Ne modifie aucun moteur.
     """
     candidate = request.get("candidate_frame", {}) if isinstance(request, dict) else {}
     signals = candidate.get("coherence_signals")
