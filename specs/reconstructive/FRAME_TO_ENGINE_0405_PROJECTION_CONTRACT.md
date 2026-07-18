@@ -87,26 +87,45 @@ engines lower `delta_phi`; it never manufactures coverage to force a positive ve
 ## Verdict derivation from real 04/05 outputs
 
 Let `e04 = run_canon_determination(...)` and `e05 = run_coherence_engine(...)`. The verdict
-is a pure function of their genuine outputs, evaluated in this fixed order (first match wins):
+is a pure function of their genuine outputs. **Structural ENGINE-04 facts are evaluated before
+ENGINE-05 resolution facts**, in this fixed normative order (first match wins):
 
 | # | Condition (real engine output only) | Verdict | Rationale |
 |---|---|---|---|
-| 1 | `e04.status != PASS` or `e05.status != PASS` | `NON_VERIFIABLE` | engine fail-closed / malformed |
-| 2 | `e05.coherence.total_pairs == 0` | `NON_VERIFIABLE` | frame projects nothing evaluable |
-| 3 | `len(e04.conflicts) > 0` **or** `e05.coherence.tension > 0` | `CONFLICTUEL` | real canon-priority conflict / measured tension → arbitration by 04/05/08 |
-| 4 | `e05.resource.authorize_llm is False` (i.e. `delta_phi < delta_phi_min`) | `NON_PERTINENT` | insufficient grounding in the frozen referential this cycle |
-| 5 | `len(e04.uncanonized) > 0` | `CONDITIONNEL` | compatible but partially ungrounded → kept without canonization |
-| 6 | otherwise (`PASS`, `total_pairs>0`, no conflict, `tension==0`, `authorize_llm True`, `uncanonized` empty ⇒ `delta_phi==1.0`) | `ADMISSIBLE` | fully grounded, coherent → integration possible |
+| 1 | projection aborted, `e04.status != PASS`, `e05.status != PASS`, or `e05.coherence.total_pairs == 0` (nothing evaluable) | `NON_VERIFIABLE` | data absent / incoherent / invalid or empty engine output |
+| 2 | `len(e04.conflicts) > 0` **or** `e05.coherence.tension > 0` | `CONFLICTUEL` | explicit ENGINE-04 canon conflict / conflictual tension → arbitration by 04/05/08 |
+| 3 | `len(e04.uncanonized) > 0` | `CONDITIONNEL` | compatible but partially ungrounded → kept without canonization |
+| 4 | `uncanonized` empty **but** `e05.coherence.resolved_pairs == 0` | `NON_VERIFIABLE` | canon present yet no resolution / no exploitable operant evidence |
+| 5 | otherwise (`resolved_pairs == total_pairs`, no conflict) | `ADMISSIBLE` | resolved without conflict → integration possible |
 
-`REDONDANT` is **not derivable from 04/05**: redundancy is a deduplication property owned by
-the frame-constellation dedup stage (`FRAME_CONSTELLATION_SCHEMA.md` `deduplication_result`),
-upstream of coherence. This projection MUST NOT emit `REDONDANT`; it is supplied by the dedup
-stage before the coherence request. Declaring it here would be an invented coherence signal.
+This order fixes the two prior defects: no rule maps ENGINE-05’s resource veto to a relevance
+verdict, and the `uncanonized` (ENGINE-04) branch is reached before any resolution test, so
+`CONDITIONNEL` is reachable and the canon-present-but-unresolved case degrades to
+`NON_VERIFIABLE` rather than being mislabelled.
 
-The six verdicts then carry their contract consequences unchanged
+### Verdicts that ENGINE-04/05 do NOT produce
+
+- **`NON_PERTINENT` belongs to the upstream relevance / eligibility filter** (recall policy
+  structural eligibility), **not** to coherence. ENGINE-04/05 emit no relevance measure, so
+  this projection MUST NOT emit `NON_PERTINENT`.
+- **`REDONDANT` belongs to the upstream deduplication stage**
+  (`FRAME_CONSTELLATION_SCHEMA.md` `deduplication_result`), **not** to coherence. This
+  projection MUST NOT emit `REDONDANT`.
+- Both verdicts are supplied by their owning stage **before** the coherence request; deriving
+  either here would be an invented coherence signal.
+
+### Non-interpretation of resolution signals
+
+`delta_phi`, `S`, and `resource.authorize_llm` are **resolution / resource** signals only.
+`authorize_llm` is ENGINE-05’s LLM-budget veto (`delta_phi >= delta_phi_min`) and is **not
+used** in this derivation. None of `delta_phi`, `S`, or `authorize_llm` may **ever** be
+interpreted as a relevance/pertinence signal. They may accompany a verdict as an opaque
+confidence annotation, never as a verdict cause.
+
+The five reachable verdicts carry their contract consequences unchanged
 (`FRAME_COHERENCE_ADMISSIBILITY_GATE` table). No numeric threshold is introduced by the
-adapter: the only threshold used is ENGINE-05’s own `delta_phi_min`, owned by ENGINE-05, not
-by the adapter; any other threshold remains `NON_MESURE`.
+adapter: the only threshold that exists is ENGINE-05’s own `delta_phi_min`, owned by
+ENGINE-05; any other threshold remains `NON_MESURE`.
 
 ## ENGINE-08 — `DEFERRED_POST_LLM`
 
@@ -122,5 +141,5 @@ then no verdict depends on it.
 - Every ENGINE-04/05 envelope field has one explicit projected source; none is invented.
 - Conflicts and fingerprints come only from ENGINE-04; `S`/`delta_phi`/`tension`/resource only from ENGINE-05.
 - Missing/impossible data is fail-closed to `NON_VERIFIABLE`, never gap-filled.
-- The six-verdict derivation uses only real engine outputs; `REDONDANT` is out (dedup stage).
+- The verdict derivation uses only real engine outputs; `NON_PERTINENT` (relevance filter) and `REDONDANT` (dedup stage) are out; resolution signals are never read as relevance.
 - ENGINE-08 is `DEFERRED_POST_LLM`. Runtime implementation of this projection is `NOT_AUTHORIZED` until independently audited.
