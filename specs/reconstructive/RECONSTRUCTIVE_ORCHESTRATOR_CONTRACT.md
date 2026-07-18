@@ -35,6 +35,17 @@ Initial state is `VALIDATE_REQUEST`; terminal states are `STOPPED`, `COMPLETED`,
 
 No persistence transition exists before ENGINE-11 closure. Every transition MUST record previous state, next state, cause, input digests, output digests and policy version. Any transition absent from the table enters `ERROR` fail-closed.
 
+Every terminal state has a non-null stable `stop_reason`. Deterministic error mapping is:
+
+| Error cause | Terminal state | `stop_reason` |
+|---|---|---|
+| bridge validation, conversion, receipt or transport error | `ERROR` | `BRIDGE_ERROR` |
+| transactional commit or idempotent replay failure | `ERROR` | `TRANSACTION_FAILURE` |
+| reconstructed identities, versions, fragments or digests diverge | `ERROR` | `RECONSTRUCTION_DIVERGENCE` |
+| invalid runtime, SHA, contract, configuration or authority precondition | `ERROR` | `RUNTIME_PRECONDITION_INVALID` |
+
+If multiple causes occur, the earliest failed transition is authoritative; subsequent symptoms are traced as secondary errors and cannot replace the stable stop reason.
+
 ## Candidate and conflict rules
 
 Persisted data is evidence, not truth. Selection MUST be explicit, reproducible for identical inputs/configuration, bounded, and provenance-aware. Conflicts remain parallel until engines 04/05/08 produce applicable evidence. A blocking unresolved conflict stops the loop; the bridge and ZMOS never arbitrate.

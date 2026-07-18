@@ -30,7 +30,7 @@ A constellation contains immutable frame versions and typed edges. Unless marked
 
 ## Identity and version rules
 
-The deduplication identity is `SHA-256(canonical-JSON([frame_id, frame_version, relation_type, provenance.source_digest]))`, lowercase hexadecimal. Canonical JSON is UTF-8, NFC-normalized strings, arrays preserved in specified canonical order, object keys lexicographically sorted, and no insignificant whitespace. A new version MUST NOT overwrite an older one. Exact duplicates, new versions, different relations, different provenance, derived transformations, already visited candidates, and justified reactivations are distinct classifications.
+First compute `provenance_digest = SHA-256(canonical-JSON(provenance))` over the complete provenance object, including source identity, source version, source digest, status and observation time. The deduplication identity is then `SHA-256(canonical-JSON([frame_id, frame_version, relation_type, provenance_digest, transformation_id-or-null]))`, lowercase hexadecimal. Canonical JSON is UTF-8, NFC-normalized strings, arrays preserved in specified canonical order, object keys lexicographically sorted, explicit JSON `null` for an absent transformation, and no insignificant whitespace. This includes the mission minimum `(frame_id, frame_version, relation_type, provenance)` and distinguishes derived transformations. A new version MUST NOT overwrite an older one. Exact duplicates, new versions, different relations, different provenance, derived transformations, already visited candidates, and justified reactivations are distinct classifications.
 
 ## Conflict states
 
