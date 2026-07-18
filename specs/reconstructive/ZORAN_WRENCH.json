@@ -1,0 +1,19 @@
+{
+  "id": "ZRN-RECONSTRUCTIVE-CONTRACT-V1",
+  "meta_id": "META-ZRN-RECONSTRUCTIVE-CONTRACT-V1",
+  "timestamp_created": "2026-07-18T12:16:52+02:00",
+  "scope": "specs/reconstructive/*",
+  "artifact_kind": "DOCUMENTARY_CONTRACT_SET",
+  "runtime_authority": false,
+  "guard_ids": [
+    "DOCUMENTARY_ONLY_NO_RUNTIME",
+    "ENGINES_00_11_UNCHANGED",
+    "ENGINE_11_TERMINAL",
+    "BRIDGE_NO_BUSINESS_DECISION",
+    "ZMOS_NO_TRUTH_AUTHORITY",
+    "NO_CODE_NO_MERGE",
+    "INDEPENDENT_EXACT_SHA_AUDIT_REQUIRED"
+  ],
+  "base_sha": "e7113ad2202e57b325350e7ca6a13b7b10433c0f",
+  "rollback": "Revert the documentary commit before any merge; no runtime state is affected."
+}
