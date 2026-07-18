@@ -29,7 +29,7 @@ sans réseau, sans LLM, sans horodatage inventé.
 from __future__ import annotations
 
 import hashlib
-import unicodedata
+import json
 
 COMPONENT_ID = "RECONSTRUCTIVE_FRAME_COHERENCE_GATE"
 VERSION = "0.1.0-slice"
@@ -114,50 +114,52 @@ class GateInputError(ValueError):
     """Entrée de gate structurellement invalide (déclenche un refus fail-closed)."""
 
 
-def _canonical_json(value):
-    """Sérialisation canonique déterministe (sous-ensemble du schéma constellation).
+def stable_engine_digest(value):
+    """Digest déterministe d'une sortie moteur (peut contenir des flottants: S, delta_phi...).
 
-    UTF-8, chaînes normalisées NFC, clés d'objet triées lexicographiquement, `null`
-    JSON explicite, aucun espace insignifiant. Suffisant et stable pour les digests
-    de trace de ce lot.
+    Utilise la sérialisation JSON canonique du projet (clés triées, séparateurs compacts),
+    la MÊME des deux côtés (adaptateur qui atteste, gate qui re-vérifie) : une attestation
+    ne peut donc pas prétendre une sortie moteur différente de celle réellement fournie.
     """
-    if value is None:
-        return "null"
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    if isinstance(value, str):
-        normalized = unicodedata.normalize("NFC", value)
-        escaped = (
-            normalized.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-        )
-        return '"' + escaped + '"'
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, (list, tuple)):
-        return "[" + ",".join(_canonical_json(item) for item in value) + "]"
-    if isinstance(value, dict):
-        parts = []
-        for key in sorted(value.keys()):
-            if not isinstance(key, str):
-                raise GateInputError("object keys MUST be strings for canonical JSON")
-            parts.append(_canonical_json(key) + ":" + _canonical_json(value[key]))
-        return "{" + ",".join(parts) + "}"
-    # Types flottants exclus : pas de sérialisation numérique ambiguë dans ce lot.
-    raise GateInputError("unsupported type for canonical JSON: " + type(value).__name__)
-
-
-def _digest(value):
-    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _is_nonempty_str(value):
     return isinstance(value, str) and value.strip() != ""
+
+
+def _attestations_ok(engine_outputs, attestations):
+    """Vraie autorité (non usurpable par label) : chaque attestation doit correspondre
+    EXACTEMENT à une sortie moteur réellement fournie (digest recalculé identique).
+
+    Retourne (ok, reason). Exige : `engine_outputs` dict non vide ; `attestations` liste non
+    vide ; chaque attestation {component_id, version, status, output_digest} dont le
+    component_id indexe `engine_outputs` et dont output_digest == digest(engine_outputs[cid]).
+    """
+    if not isinstance(engine_outputs, dict) or not engine_outputs:
+        return False, "ENGINE_OUTPUTS_MISSING"
+    if not isinstance(attestations, list) or not attestations:
+        return False, "ATTESTATIONS_MISSING"
+    attested_ids = set()
+    for att in attestations:
+        if not isinstance(att, dict):
+            return False, "ATTESTATION_MALFORMED"
+        cid = att.get("component_id")
+        digest = att.get("output_digest")
+        if not (_is_nonempty_str(cid) and _is_nonempty_str(digest)):
+            return False, "ATTESTATION_MALFORMED"
+        if cid not in engine_outputs:
+            return False, "ATTESTATION_UNKNOWN_ENGINE"
+        if stable_engine_digest(engine_outputs[cid]) != digest:
+            return False, "ATTESTATION_DIGEST_MISMATCH"
+        attested_ids.add(cid)
+    # Toute sortie moteur embarquée doit être attestée (pas de sortie « clandestine »).
+    if attested_ids != set(engine_outputs.keys()):
+        return False, "ATTESTATION_COVERAGE_MISMATCH"
+    return True, "OK"
 
 
 def _validate_inputs(request):
@@ -222,6 +224,8 @@ def _build_trace(
     evidence_refs,
     policy_version,
     reason,
+    engine_outputs=None,
+    attestations=None,
 ):
     run_id = request.get("run_id") if isinstance(request, dict) else None
     trace_id = request.get("trace_id") if isinstance(request, dict) else None
@@ -235,7 +239,7 @@ def _build_trace(
         "run_id": run_id,
         "trace_id": trace_id,
         "candidate_frame_ref": candidate_ref,
-        "input_digest": _digest(request) if isinstance(request, dict) else None,
+        "input_digest": stable_engine_digest(request) if isinstance(request, dict) else None,
         "verdict": verdict,
         "verdict_source": verdict_source,
         "consequence": consequence,
@@ -246,12 +250,16 @@ def _build_trace(
         "policy_version": policy_version,
         "reason": reason,
         "gate_authority": "orchestrator_requests_engines_decide",
+        # Sorties moteur RÉELLES conservées dans la trace (preuve : le verdict provient
+        # d'ENGINE-04/05, pas d'un label). None sur le chemin séminal documentaire.
+        "engine_outputs": engine_outputs,
+        "engine_attestations": list(attestations) if attestations else None,
     }
-    trace["trace_digest"] = _digest(trace)
+    trace["trace_digest"] = stable_engine_digest(trace)
     return trace
 
 
-def evaluate_frame_admissibility(request, coherence_evaluator):
+def evaluate_frame_admissibility(request, coherence_evaluator, verdict_deriver=None):
     """Gate d'admissibilité d'un cadre par cohérence.
 
     Args:
@@ -259,18 +267,25 @@ def evaluate_frame_admissibility(request, coherence_evaluator):
             (candidate_frame, current_state, active_frames, established_facts,
              provenance, version) et optionnellement run_id/trace_id/policy_version.
         coherence_evaluator: callable représentant les moteurs 04/05/08. Reçoit
-            `request` et retourne un dict {verdict, evidence_refs, source, policy_version}.
-            Le gate n'émet jamais le verdict lui-même ; il ne fait que le demander,
-            le valider et en tirer la conséquence obligatoire.
+            `request` et retourne un dict {source, evidence_refs, policy_version, ...}.
+            Le gate n'émet jamais le verdict lui-même.
+        verdict_deriver: OPTIONNEL. Sur le chemin RÉEL (câblage 04/05), callable pur
+            `engine_outputs -> verdict`. Quand fourni, le gate IGNORE tout `verdict`
+            auto-déclaré et **dérive lui-même** le verdict des sorties moteur réelles
+            embarquées (`evaluation["engine_outputs"]`), après vérification que chaque
+            sortie est attestée (digest recalculé). Aucun verdict ne peut donc être
+            fabriqué par un simple label. Quand absent, chemin séminal documentaire :
+            le gate lit `evaluation["verdict"]` (source ENGINES_04_05_08 requise).
 
     Returns:
         Une trace complète (dict) incluant verdict, source, conséquence, disposition,
-        intégration (bool), fail_closed (bool), digests canoniques.
+        intégration (bool), fail_closed (bool), sorties moteur réelles, digests.
 
     Règles fail-closed :
         - provenance ou version absente -> NON_VERIFIABLE (sans appeler l'évaluateur) ;
-        - verdict absent/ambigu/hors des six valeurs -> NON_VERIFIABLE ;
-        - source de verdict != ENGINES_04_05_08 (bridge/ZMOS/LLM) -> NON_VERIFIABLE.
+        - source != ENGINES_04_05_08 (bridge/ZMOS/LLM) -> NON_VERIFIABLE ;
+        - attestations manquantes/incohérentes (chemin réel) -> NON_VERIFIABLE ;
+        - verdict dérivé/déclaré hors des six valeurs -> NON_VERIFIABLE.
     """
     reason, candidate_ref = _validate_inputs(request)
     if reason is not None:
@@ -284,13 +299,12 @@ def evaluate_frame_admissibility(request, coherence_evaluator):
 
     evaluation = coherence_evaluator(request)
 
-    # Verdict absent ou structurellement invalide -> fail-closed.
+    # Résultat d'évaluateur absent ou structurellement invalide -> fail-closed.
     if not isinstance(evaluation, dict):
         return _fail_closed_trace(
             request, candidate_ref, "EVALUATOR_RESULT_INVALID", GATE_FAIL_CLOSED_SOURCE
         )
 
-    verdict = evaluation.get("verdict")
     source = evaluation.get("source")
 
     # Autorité : seuls les moteurs 04/05/08 décident. Bridge/ZMOS/LLM -> refus.
@@ -299,7 +313,42 @@ def evaluate_frame_admissibility(request, coherence_evaluator):
             request, candidate_ref, "AUTHORITY_VIOLATION", GATE_FAIL_CLOSED_SOURCE
         )
 
-    # Verdict ambigu / hors des six valeurs stables -> fail-closed.
+    engine_outputs = evaluation.get("engine_outputs")
+    attestations = evaluation.get("attestations")
+
+    if verdict_deriver is not None:
+        # --- Chemin RÉEL : verdict dérivé par le gate des sorties moteur attestées. ---
+        ok, att_reason = _attestations_ok(engine_outputs, attestations)
+        if not ok:
+            return _fail_closed_trace(
+                request, candidate_ref, "ENGINE_ATTESTATION_" + att_reason,
+                GATE_FAIL_CLOSED_SOURCE,
+            )
+        try:
+            verdict = verdict_deriver(engine_outputs)
+        except Exception:  # noqa: BLE001 — dérivation défaillante -> fail-closed, jamais un crash
+            return _fail_closed_trace(
+                request, candidate_ref, "VERDICT_DERIVATION_ERROR",
+                GATE_FAIL_CLOSED_SOURCE,
+            )
+        if verdict not in VERDICTS:
+            return _fail_closed_trace(
+                request, candidate_ref, "VERDICT_AMBIGUOUS", GATE_FAIL_CLOSED_SOURCE
+            )
+        return _build_trace(
+            request=request,
+            candidate_ref=candidate_ref,
+            verdict=verdict,
+            verdict_source=ALLOWED_VERDICT_SOURCE,
+            evidence_refs=evaluation.get("evidence_refs"),
+            policy_version=evaluation.get("policy_version"),
+            reason="OK",
+            engine_outputs=engine_outputs,
+            attestations=attestations,
+        )
+
+    # --- Chemin séminal documentaire (rétro-compatible) : verdict auto-déclaré. ---
+    verdict = evaluation.get("verdict")
     if verdict not in VERDICTS:
         return _fail_closed_trace(
             request, candidate_ref, "VERDICT_AMBIGUOUS", GATE_FAIL_CLOSED_SOURCE
