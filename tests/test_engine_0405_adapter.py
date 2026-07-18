@@ -21,6 +21,7 @@ from zoran_reconstructive.engine_0405_adapter import (
 from zoran_reconstructive.frame_coherence_gate import (
     ADMISSIBLE,
     ALLOWED_VERDICT_SOURCE,
+    CANONICAL_REQUIRED_ENGINES,
     CONDITIONNEL,
     CONFLICTUEL,
     NON_VERIFIABLE,
@@ -28,6 +29,18 @@ from zoran_reconstructive.frame_coherence_gate import (
     evaluate_frame_admissibility,
     stable_engine_digest,
 )
+
+
+def _fingerprint(engines):
+    return frozenset((e["component_id"], e["version"]) for e in engines)
+
+
+def test_gate_frozen_canonical_matches_real_engines():
+    """VERROU ANTI-DÉRIVE : l'identité/version FIGÉE dans le gate doit rester égale aux
+    vrais moteurs 04/05 (via `REQUIRED_ENGINES` de l'adaptateur, construit sur les
+    constantes réelles). Si un moteur change de version sans re-gel du gate, ce test
+    casse (fail-closed volontaire au niveau contrat)."""
+    assert _fingerprint(CANONICAL_REQUIRED_ENGINES) == _fingerprint(REQUIRED_ENGINES)
 
 
 def _prov(tag="p"):

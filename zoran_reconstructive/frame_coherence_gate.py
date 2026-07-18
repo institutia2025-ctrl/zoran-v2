@@ -18,6 +18,9 @@ Séparation d'autorité (contrat) :
   l'émet JAMAIS ;
 - les moteurs 04/05/08 (fonction `coherence_evaluator` injectée) rendent seuls le
   verdict ;
+- l'identité et la version canoniques des moteurs admis (ENGINE-04, ENGINE-05) sont
+  FIGÉES dans le gate : l'appelant ne peut jamais substituer l'ensemble des moteurs
+  requis (`required_engines` n'est plus autoritatif) ;
 - le bridge, ZMOS et le LLM ne décident jamais : un verdict dont la `source`
   n'est pas `ENGINES_04_05_08` est refusé fail-closed ;
 - aucun seuil numérique n'est fixé ici ; tout seuil non calibré reste `NON_MESURE`.
@@ -70,6 +73,31 @@ DISPOSITION = {
 ALLOWED_VERDICT_SOURCE = "ENGINES_04_05_08"
 GATE_FAIL_CLOSED_SOURCE = "GATE_FAIL_CLOSED"
 
+# --- Identités et versions CANONIQUES des moteurs, FIGÉES dans le gate ---
+# Autorité NON délégable : le gate n'accepte PLUS `required_engines` de l'appelant
+# comme source de vérité. Les seuls moteurs admis — ENGINE-04 et ENGINE-05 à leur
+# version canonique RÉELLE — sont définis IMMUABLEMENT ici. Tout autre component_id,
+# toute autre version, tout ensemble différent (moteur manquant, supplémentaire,
+# falsifié) est neutralisé fail-closed (`NON_VERIFIABLE`, integration=false), SANS
+# jamais appeler le `verdict_deriver`. Les littéraux sont épinglés volontairement :
+# si un moteur réel change de version, le gate refuse (fail-closed) jusqu'à re-gel
+# explicite du contrat — jamais une acceptation silencieuse.
+ENGINE_04_CANONICAL_ID = "04_CANON_DETERMINATION"
+ENGINE_04_CANONICAL_VERSION = "1.0.0"
+ENGINE_05_CANONICAL_ID = "05_COHERENCE_ENGINE"
+ENGINE_05_CANONICAL_VERSION = "1.0.0"
+
+CANONICAL_REQUIRED_ENGINES = (
+    {"component_id": ENGINE_04_CANONICAL_ID, "version": ENGINE_04_CANONICAL_VERSION},
+    {"component_id": ENGINE_05_CANONICAL_ID, "version": ENGINE_05_CANONICAL_VERSION},
+)
+
+# Empreinte normalisée (ordre-insensible) du contrat canonique : sert UNIQUEMENT à
+# détecter une tentative de substitution par l'appelant, jamais à lui déléguer l'autorité.
+_CANONICAL_ENGINE_FINGERPRINT = frozenset(
+    (e["component_id"], e["version"]) for e in CANONICAL_REQUIRED_ENGINES
+)
+
 # Entrées minimales exigées par le contrat (section "Evaluation input").
 REQUIRED_INPUT_KEYS = (
     "candidate_frame",
@@ -92,6 +120,8 @@ GOVERNANCE = {
     "GUARD_IDS": [
         "SINGLE_NORMATIVE_GATE",
         "ENGINES_04_05_08_ONLY_DECIDE",
+        "CANONICAL_ENGINE_IDENTITY_FROZEN_IN_GATE",
+        "NO_CALLER_ENGINE_AUTHORITY",
         "NO_BRIDGE_AUTHORITY",
         "NO_ZMOS_AUTHORITY",
         "NO_LLM_AUTHORITY",
@@ -129,6 +159,27 @@ def stable_engine_digest(value):
 
 def _is_nonempty_str(value):
     return isinstance(value, str) and value.strip() != ""
+
+
+def _engine_set_fingerprint(engines):
+    """Empreinte normalisée (ordre-insensible) d'un ensemble {component_id, version}.
+
+    Retourne None si l'entrée est malformée (non séquence, dict incomplet, valeurs
+    vides). Sert exclusivement à comparer une proposition de l'appelant au contrat
+    canonique — sans jamais lui accorder d'autorité.
+    """
+    if not isinstance(engines, (list, tuple)) or not engines:
+        return None
+    pairs = []
+    for e in engines:
+        if not isinstance(e, dict):
+            return None
+        cid = e.get("component_id")
+        version = e.get("version")
+        if not (_is_nonempty_str(cid) and _is_nonempty_str(version)):
+            return None
+        pairs.append((cid, version))
+    return frozenset(pairs)
 
 
 def _engine_attestations_ok(engine_outputs, attestations, required_engines):
@@ -315,10 +366,13 @@ def evaluate_frame_admissibility(
             `evaluation["verdict"]` auto-déclaré. Si `verdict_deriver is None`, aucune
             intégration n'est possible : le gate renvoie `NON_VERIFIABLE`
             (`integration=false`). Il n'existe donc aucun chemin déclaratif d'intégration.
-        required_engines: séquence {component_id, version} des moteurs EXACTEMENT requis
-            (04 ET 05). Le gate exige l'ensemble exact, la version attendue, un status
-            cohérent et un digest liant chaque attestation à sa sortie, AVANT le deriver ;
-            sinon `NON_VERIFIABLE`. Absent -> `NON_VERIFIABLE` (fail-closed).
+        required_engines: NON AUTORITATIF. L'ensemble des moteurs admis est FIGÉ dans
+            le gate (`CANONICAL_REQUIRED_ENGINES` : ENGINE-04 ET ENGINE-05 aux versions
+            canoniques réelles) et lui seul fait autorité. Ce paramètre n'existe que pour
+            compat ascendante : s'il est fourni et ne correspond PAS exactement au contrat
+            canonique, c'est une tentative de substitution -> refus fail-closed
+            (`NON_VERIFIABLE`, integration=false) SANS appeler ni l'évaluateur ni le deriver.
+            Absent ou égal au canonique -> le gate applique le contrat canonique interne.
 
     Returns:
         Une trace complète (dict) incluant verdict, source, conséquence, disposition,
@@ -348,6 +402,17 @@ def evaluate_frame_admissibility(
             request, candidate_ref, "VERDICT_DERIVER_REQUIRED", GATE_FAIL_CLOSED_SOURCE
         )
 
+    # IDENTITÉ CANONIQUE FIGÉE : l'ensemble des moteurs admis n'est JAMAIS celui fourni
+    # par l'appelant. Si `required_engines` est fourni et diffère du contrat canonique,
+    # c'est une tentative de substitution d'autorité -> refus fail-closed AVANT tout
+    # appel à l'évaluateur ou au deriver (deriver_calls=0).
+    if required_engines is not None and (
+        _engine_set_fingerprint(required_engines) != _CANONICAL_ENGINE_FINGERPRINT
+    ):
+        return _fail_closed_trace(
+            request, candidate_ref, "REQUIRED_ENGINES_NOT_CANONICAL", GATE_FAIL_CLOSED_SOURCE
+        )
+
     evaluation = coherence_evaluator(request)
 
     # Résultat d'évaluateur absent ou structurellement invalide -> fail-closed.
@@ -366,8 +431,12 @@ def evaluate_frame_admissibility(
     attestations = evaluation.get("attestations")
 
     # Sorties CONJOINTES, IDENTIFIÉES et ATTESTÉES des moteurs EXACTEMENT requis (04 ET 05),
-    # vérifiées AVANT tout appel au deriver (fail-closed).
-    ok, att_reason = _engine_attestations_ok(engine_outputs, attestations, required_engines)
+    # vérifiées AVANT tout appel au deriver (fail-closed). Autorité = contrat CANONIQUE
+    # figé dans le gate (défense en profondeur : même si l'appelant a omis required_engines,
+    # une sortie de moteur non canonique déclenche ENGINE_SET_MISMATCH).
+    ok, att_reason = _engine_attestations_ok(
+        engine_outputs, attestations, CANONICAL_REQUIRED_ENGINES
+    )
     if not ok:
         return _fail_closed_trace(
             request, candidate_ref, "ENGINE_ATTESTATION_" + att_reason,

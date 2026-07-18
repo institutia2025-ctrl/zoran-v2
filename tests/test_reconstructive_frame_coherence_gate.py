@@ -149,13 +149,81 @@ def test_no_deriver_even_with_attested_outputs_is_non_verifiable():
     assert trace["reason"] == "VERDICT_DERIVER_REQUIRED"
 
 
-def test_required_engines_absent_is_non_verifiable():
+def test_required_engines_absent_uses_frozen_canonical_set():
+    """Post-fix: l'ensemble des moteurs est FIGÉ dans le gate. Un appelant qui n'envoie
+    aucun `required_engines` n'invalide plus rien : le gate applique son contrat canonique
+    interne (04+05) et dérive un verdict à partir des sorties réelles attestées."""
     trace = evaluate_frame_admissibility(
         _request(), _attested_evaluator(), verdict_deriver=_stub_deriver(ADMISSIBLE)
     )
+    assert trace["verdict"] == ADMISSIBLE
+    assert trace["integration"] is True
+
+
+def test_caller_supplied_required_engines_cannot_substitute_authority():
+    """CONTRE-TEST MISSION (ZORAN_0405_GATE_CANONICAL_ENGINE_IDENTITY_FIX_V1).
+
+    required_engines = [ATTACKER@9], sortie ATTACKER auto-attestée, deriver permissif.
+    Attendu : NON_VERIFIABLE, integration=false, deriver_calls=0.
+    """
+    deriver_calls = {"n": 0}
+
+    def _permissive(engine_outputs):  # deriver permissif : accorderait ADMISSIBLE
+        deriver_calls["n"] += 1
+        return ADMISSIBLE
+
+    attacker_outputs = {
+        "ATTACKER": {"component": "ATTACKER", "version": "9", "status": "PASS", "z": 1}
+    }
+    trace = evaluate_frame_admissibility(
+        _request(),
+        _attested_evaluator(engine_outputs=attacker_outputs),  # ATTACKER auto-attesté
+        verdict_deriver=_permissive,
+        required_engines=[{"component_id": "ATTACKER", "version": "9"}],
+    )
     assert trace["verdict"] == NON_VERIFIABLE
     assert trace["integration"] is False
-    assert trace["reason"] == "ENGINE_ATTESTATION_REQUIRED_ENGINES_MISSING"
+    assert trace["reason"] == "REQUIRED_ENGINES_NOT_CANONICAL"
+    assert deriver_calls["n"] == 0
+
+
+def test_rogue_evaluator_outputs_rejected_against_canonical_set():
+    """Défense en profondeur : même sans substitution de `required_engines`, un évaluateur
+    qui émet des sorties de moteur NON canoniques est rejeté (ensemble != 04+05), sans
+    appeler le deriver."""
+    deriver_calls = {"n": 0}
+
+    def _permissive(engine_outputs):
+        deriver_calls["n"] += 1
+        return ADMISSIBLE
+
+    attacker_outputs = {
+        "ATTACKER": {"component": "ATTACKER", "version": "9", "status": "PASS", "z": 1}
+    }
+    trace = evaluate_frame_admissibility(
+        _request(),
+        _attested_evaluator(engine_outputs=attacker_outputs),
+        verdict_deriver=_permissive,  # aucun required_engines fourni
+    )
+    assert trace["verdict"] == NON_VERIFIABLE
+    assert trace["integration"] is False
+    assert trace["reason"] == "ENGINE_ATTESTATION_ENGINE_SET_MISMATCH"
+    assert deriver_calls["n"] == 0
+
+
+def test_wrong_engine_version_is_rejected_against_frozen_canonical():
+    """Un ensemble 04+05 mais à une VERSION incorrecte (ex. 04@9.9.9) est une substitution
+    non canonique -> fail-closed avant tout appel deriver."""
+    trace = evaluate_frame_admissibility(
+        _request(), _attested_evaluator(), verdict_deriver=_stub_deriver(ADMISSIBLE),
+        required_engines=[
+            {"component_id": _ENGINE_04, "version": "9.9.9"},
+            {"component_id": _ENGINE_05, "version": "1.0.0"},
+        ],
+    )
+    assert trace["verdict"] == NON_VERIFIABLE
+    assert trace["integration"] is False
+    assert trace["reason"] == "REQUIRED_ENGINES_NOT_CANONICAL"
 
 
 def test_reference_evaluator_is_non_authoritative():
