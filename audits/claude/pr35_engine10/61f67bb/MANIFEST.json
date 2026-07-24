@@ -1,0 +1,19 @@
+{
+  "OBJECT_ID": "PR35_ENGINE10",
+  "SHA_AUDITED": "61f67bb8368d212c4c437c9e0502bf3c841b55af",
+  "pr": 35, "branch_audited": "feat/engine-10-action-admissibility",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT", "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE)",
+  "created": "2026-07-15T19:13:17+02:00",
+  "red_tests_before_patch": "stub permissif -> 21 failed, 6 passed",
+  "ci": "success (pytest, pip-audit, gitleaks, bandit) ; local 400 passed (27 cibles 10) sous pytest 9.1.1, 1 deselected py_lt_314 env-only",
+  "product_files_touched_vs_integration": ["zoran_v2/action_admissibility_and_plan.py", "tests/test_action_admissibility_and_plan.py", "specs/SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN.md", "ACTIONS_CATALOG.yaml", "CANONICAL_SOURCES.yaml"],
+  "no_00_09_modification": true,
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "8375ab5b6317cc7fd1c50b476ae0a8587d475aca04c37c29990fa6ffbe2d7807", "bytes": 3269},
+    {"name": "SPEC_ENGINE_10_FROZEN.md", "sha256": "a9a753b86dcc5ffbc8667dcaf47450f3d301e0c0d2b5f66b0409bf661d922cd4", "bytes": 4289},
+    {"name": "ACTIONS_CATALOG.yaml", "sha256": "c79c567aaf70918e83cfbbf89aa4cc31500700fb3eaf6e4dd81598bd97133610", "bytes": 853},
+    {"name": "diff_ref_integration_to_61f67bb.txt", "sha256": "7d546d28b1e5d31b15e24d11fe1cccb750e87a775c266f839b3b97693c9b6b1a", "bytes": 35377}
+  ]
+}

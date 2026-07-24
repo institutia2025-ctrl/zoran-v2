@@ -1,0 +1,26 @@
+{
+  "OBJECT_ID": "PR35_ENGINE10",
+  "SHA_AUDITED": "adbfa0ef1b7539d4a6f9d7a07f0803b11ec3d3f4",
+  "supersedes_folder": "61f67bb",
+  "pr": 35, "docs_pr": 36, "branch_audited": "feat/engine-10-action-admissibility",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT", "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE)", "fixer": "CODEX_FIXER",
+  "created": "2026-07-15T19:45:34+02:00",
+  "findings_closed": [
+    {"code": "GC-10-P1-DECISION-09-PROVENANCE-REPLAY", "source": "ChatGPT GLOBAL_COHERENCE", "status": "CLOSED@adbfa0e"},
+    {"code": "CSB-10-P1-001", "alias": "UNBOUND_ACTION_CATALOG_PROVENANCE", "source": "Codex Session B", "status": "CLOSED@adbfa0e"}
+  ],
+  "tests_targeted": "36 passed",
+  "tests_suite": "409 passed, 1 deselected (test_probe_contrat_python env-only py3.14 local / deselected CI py3.13)",
+  "ci": "SUCCESS (pytest, pip-audit, gitleaks, bandit)",
+  "product_files_touched_vs_integration": ["zoran_v2/action_admissibility_and_plan.py", "tests/test_action_admissibility_and_plan.py", "specs/SPEC_ENGINE_10_ACTION_ADMISSIBILITY_AND_PLAN.md", "ACTIONS_CATALOG.yaml", "CANONICAL_SOURCES.yaml"],
+  "no_00_09_modification": true,
+  "diff_ref_lines": 824,
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "ac37f8e9e995cf32295d561cd493983e70b0ddeae60aedd7ef7d4cecaaa52e72", "bytes": 3600},
+    {"name": "SPEC_ENGINE_10_FROZEN.md", "sha256": "a9a753b86dcc5ffbc8667dcaf47450f3d301e0c0d2b5f66b0409bf661d922cd4", "bytes": 4289},
+    {"name": "ACTIONS_CATALOG.yaml", "sha256": "c79c567aaf70918e83cfbbf89aa4cc31500700fb3eaf6e4dd81598bd97133610", "bytes": 853},
+    {"name": "diff_ref_integration_to_adbfa0e.txt", "sha256": "b58a0705b1a825d0ef89ef6a4b3da9a88a8b7f7de41553e13590b53eb42c5685", "bytes": 40806}
+  ]
+}
