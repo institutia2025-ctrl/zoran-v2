@@ -11,6 +11,7 @@ GUARD_IDS: EXACT_SHA, NO_LLM_REASONING, FAIL_CLOSED_NON_MESURE, LOCAL_AND_GENERA
 - Dépôt : `institutia2025-ctrl/zoran-v2`
 - Branche : `codex/semantic-decision-v1`
 - Base gelée : `e7113ad2202e57b325350e7ca6a13b7b10433c0f`
+- Commit d'implémentation scellé : `23f1b51c0ee538f39c28273035a99b304b8a6ed1`
 - Architecture autoritaire : `Zoran-IA-Mimetique/zoran-bench-runtime@86a541a087b25b5fa8b30078ad29c736078ecae4`
 - Rollback : revert du commit dédié, sans toucher au worktree négatif conservé.
 
@@ -65,4 +66,4 @@ Le faux verbaliseur remplaçant `interdit` par `recommandé` est rejeté.
 
 `IMPLEMENTED_AND_LOCALLY_PROVEN`
 
-La preuve exacte reste à sceller par commit local. Aucun merge, déploiement, appel modèle ou benchmark 10/30 n'a été effectué.
+Le code est scellé par le commit local ci-dessus. Aucun push, merge, déploiement, appel modèle ou benchmark 10/30 n'a été effectué.
