@@ -1,0 +1,17 @@
+{
+  "OBJECT_ID": "PR33_ENGINE09",
+  "SHA_AUDITED": "04073c158b005e3c17dd2599111378179d5e2f2b",
+  "pr": 33, "branch_audited": "feat/engine-09-structured-decision",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT", "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE) ; correctif finding par CODEX_FIXER",
+  "created": "2026-07-15T18:08:56+02:00",
+  "finding_closed": "GC-09-P1-DECISION-ID-TARGET-CONTEXT-OMISSION (kind_public inclus dans le contexte de cible du decision_id ; guard DECISION_ID_COVERS_COMPLETE_TARGET_CONTEXT)",
+  "superseded_sha_no_cert_bundle": ["b9316f0c9357d050d5f8ec310ad5a85c59c3921d", "41374982576ffe98cadf0ca932bfc8c0013030f5"],
+  "ci": "success (pytest, pip-audit, gitleaks, bandit) ; local 371 passed (30 cibles 09) sous pytest 9.1.1, 1 deselected py_lt_314 env-only",
+  "product_files_touched_vs_integration": ["zoran_v2/structured_decision.py", "tests/test_structured_decision.py", "specs/SPEC_ENGINE_09_STRUCTURED_DECISION.md", "CANONICAL_SOURCES.yaml"],
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "f438224296166be9f35ec673731e2a3cd944ccb0a1d571bf0f62d02152bc9f36", "bytes": 3046},
+    {"name": "diff_ref_integration_to_04073c15.txt", "sha256": "7563c25af490c9d0b6758f65a187048ea7e572855a8a51c418bf9381942b63f9", "bytes": 39797}
+  ]
+}

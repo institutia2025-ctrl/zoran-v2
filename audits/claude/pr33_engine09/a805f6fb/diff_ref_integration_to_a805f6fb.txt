@@ -1,0 +1,859 @@
+diff --git a/CANONICAL_SOURCES.yaml b/CANONICAL_SOURCES.yaml
+index 11b8bfc..31875e5 100644
+--- a/CANONICAL_SOURCES.yaml
++++ b/CANONICAL_SOURCES.yaml
+@@ -20,3 +20,5 @@ sources:
+     title: Porte 7 — exécution LLM (seule étape générative ; client injecté, appel unique)
+   - id: SPEC_ENGINE_08_COHERENCE_2
+     title: Porte 8 — 2e passe de cohérence post-LLM (valide 07.response vs référentiel gelé, verdict d'admissibilité gate 09)
++  - id: SPEC_ENGINE_09_STRUCTURED_DECISION
++    title: Porte 9 — décision structurée déterministe à partir d'une réponse admise par 08 (sans génération)
+diff --git a/specs/SPEC_ENGINE_09_STRUCTURED_DECISION.md b/specs/SPEC_ENGINE_09_STRUCTURED_DECISION.md
+new file mode 100644
+index 0000000..f2bfc19
+--- /dev/null
++++ b/specs/SPEC_ENGINE_09_STRUCTURED_DECISION.md
+@@ -0,0 +1,55 @@
++# SPEC_ENGINE_09_STRUCTURED_DECISION (FIGÉ — Fred 2026-07-15)
++
++Porte 9 du pipeline de raisonnement ZORAN V2. Position : `08 ADMISSIBILITY → 09 STRUCTURED_DECISION
++→ 10 ACTION_ADMISSIBILITY_AND_PLAN → exécuteur externe (GO humain) → 11 TRACE_AND_CLOSE`.
++
++## Fonction
++Transformer EXCLUSIVEMENT une réponse ADMISE par 08 (ACCEPT) en un OBJET-DÉCISION déterministe,
++typé, traçable, SANS nouvelle génération. 09 ne juge pas (08 l'a fait), ne résume pas librement,
++ne complète pas, n'invente pas, ne choisit ni n'exécute aucune action (→ 10).
++
++## Invariants
++`NO_LLM` · `NO_NETWORK` · `NO_NEW_INFORMATION` · `NO_ACTION_EXECUTION` · `FAIL_CLOSED` ·
++`ANTI_LEAK` (récursif : clés internes interdites + séparateur `\x1f`) · `IMMUTABLE` · `DETERMINISTIC`.
++
++## Entrées autoritaires (revalidées, 4 niveaux, jamais confiance au statut)
++- `status` 00→08 == PASS (chaque moteur).
++- `coherence_2` (08) : `verdict == "ACCEPT"` ; `authorize_09 is True` (identité STRICTE) ; `referential_fingerprint` str non vide.
++- `canon_determination` (04) : `canon_referential.fingerprint` str non vide ET == 08.referential_fingerprint (chaîne).
++- `llm_request_build` (06) : `authorized is True` ; `llm_request.targets` = liste non vide au schéma exact
++  ({object_public_id `OBJ-\d{4,}`, kind_public, frame, canons:[str], operants:[str]}), unicité (opid,frame), canons/operants str.
++- `llm_execution` (07) : `executed is True` ; `response` = RESPONSE_STRUCTURED_ANALYSIS_V1 (schéma exact) ;
++  `response.referential_fingerprint == 04` ; chaque result (opid,frame)/canon/opérant ⊆ attendus 06 ; unicité.
++- Concordance : `verdict==ACCEPT ⇔ authorize_09 is True` ; fingerprints 08/07 == 04.
++- **COUVERTURE (P1)** : l'ensemble des (opid,frame) de la réponse == l'ensemble des cibles 06. Toute omission,
++  cible inconnue ou couverture partielle → BLOCKED.
++
++## Sortie
++Enveloppe : `component, version, status, blocked_by, blocked_source, decision, order_key`.
++- BLOCKED (fail-closed) : `status="BLOCKED"`, `blocked_by` = code 09 dédié, `blocked_source` = référence structurée
++  vers le moteur/frontière source, `decision=None`.
++- PASS : `decision` = objet-décision :
++  `decision_id, decision_type, decision_status, targets, claims_retained, claims_rejected, constraints,
++   justification_refs, referential_fingerprint, source_response_fingerprint`.
++
++## Sémantique de décision (déterministe, ZÉRO information nouvelle)
++- `decision_type = "STRUCTURED_ANALYSIS_DECISION_V1"`. `decision_status = "DECIDED_ON_ACCEPT"`.
++- `targets` = [(object_public_id, frame)] triés = cibles 06.
++- `claims_retained` = canon_findings `admissible==true` (verbatim, triés). `claims_rejected` = `admissible==false`.
++- `constraints` = operant_outcomes (operant, applied, reason_code?) (verbatim, triés).
++- `justification_refs` = `{canon_refs, operant_refs, target_refs, response_fingerprint, referential_fingerprint}` — références STRUCTURÉES uniquement, aucun texte libre / paraphrase.
++- `referential_fingerprint` == 04 ; `source_response_fingerprint` == 07.response.referential_fingerprint (== 04).
++
++## decision_id (Q3 figé)
++`decision_id = "DECISION-" + sha256(canonical_json(PAYLOAD))`, PAYLOAD (clés triées) =
++`{decision_type, verdict, referential_fingerprint, targets_06_normalisées, response_07_complète_normalisée,
++  claims_retained, claims_rejected, constraints, justification_refs}`.
++Règles : JSON canonique, clés triées, ordre des listes explicitement défini (tri), UTF-8, séparateurs déterministes,
++AUCUNE donnée volatile / date / UUID aléatoire. → mêmes entrées = même id ; contenu différent (même fingerprint) = id différent.
++
++## codes blocked_by (09 dédiés)
++`09_STRUCTURED_DECISION_UPSTREAM_NOT_PASS` · `_NOT_ADMITTED` · `_FINGERPRINT_CHAIN` · `_REQUEST_MALFORMED` ·
++`_RESPONSE_MALFORMED` · `_PROVENANCE` · `_COVERAGE` · `_LEAK`. Chacun accompagné de `blocked_source`.
++
++## NON-goals
++Résumé libre · complétion · génération/LLM · réseau · choix/exécution d'action · invention · re-jugement · modification du référentiel.
+diff --git a/tests/test_structured_decision.py b/tests/test_structured_decision.py
+new file mode 100644
+index 0000000..46ffb9f
+--- /dev/null
++++ b/tests/test_structured_decision.py
+@@ -0,0 +1,384 @@
++"""Tests déterministes de 09_STRUCTURED_DECISION (envelope 00→08 injectée).
++
++Vérifie : admissibilité 08 (verdict==ACCEPT, authorize_09 is True strict), chaîne fingerprint 04/07/08,
++revalidation 06/07, provenance, COUVERTURE EXACTE (P1), anti-fuite, objet final PLAT (P-C2),
++decision_id + CONTENT_SHA256 via la primitive canonique `_fingerprint` (aucun second hasher),
++construction 2 phases, conservation EXACTE des chaînes (NFC/NFD, CRLF/LF, ordre des clés), fail-closed.
++"""
++import copy
++import unicodedata
++
++import pytest
++
++from zoran_v2.structured_decision import (
++    ACCEPT,
++    BLOCKED,
++    COVERAGE,
++    DECISION_STATUS,
++    DECISION_TYPE,
++    FINGERPRINT_CHAIN,
++    GOVERNANCE,
++    GOVERNANCE_REQUIRED_KEYS,
++    LEAK,
++    NOT_ADMITTED,
++    NON_SCALAR_UNICODE,
++    ORDER_KEY,
++    OUTPUT_KEYS,
++    PASS,
++    PROVENANCE,
++    PROVENANCE_DECL,
++    REQUEST_MALFORMED,
++    RESPONSE_MALFORMED,
++    UPSTREAM_NOT_PASS,
++    run_structured_decision,
++)
++
++FP = "FP"
++
++
++def _code(v):
++    return (v["blocked_by"] or "").split("@")[0]
++
++
++def _targets(tgts=None):
++    return tgts if tgts is not None else [
++        {"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
++         "canons": ["C"], "operants": ["OP"]}]
++
++
++def _results(res=None):
++    return res if res is not None else [
++        {"object_public_id": "OBJ-0001", "frame": "CODE",
++         "canon_findings": [{"canon": "C", "admissible": True}],
++         "operant_outcomes": [{"operant": "OP", "applied": True}]}]
++
++
++def _response(results=None, fingerprint=FP, schema="RESPONSE_STRUCTURED_ANALYSIS_V1",
++              instruction_kind="STRUCTURED_ANALYSIS_V1"):
++    return {"response_schema": schema, "instruction_kind": instruction_kind,
++            "referential_fingerprint": fingerprint, "results": _results(results)}
++
++
++def _env(verdict=ACCEPT, authorize_09=True, fp08=FP, fp04=FP, request_fp=FP,
++         targets=None, response=None, executed=True, **over):
++    req = {"referential_fingerprint": request_fp, "targets": _targets(targets)}
++    base = {
++        "runtime_check": {"status": "PASS"},
++        "object_discovery": {"status": "PASS"},
++        "frame_selection": {"status": "PASS"},
++        "operants_operes": {"status": "PASS"},
++        "canon_determination": {"status": "PASS", "canon_referential": {"fingerprint": fp04}},
++        "coherence_engine": {"status": "PASS"},
++        "llm_request_build": {"status": "PASS", "authorized": True, "llm_request": req},
++        "llm_execution": {"status": "PASS", "executed": executed,
++                          "response": response if response is not None else _response()},
++        "coherence_2": {"status": "PASS", "verdict": verdict, "authorize_09": authorize_09,
++                        "referential_fingerprint": fp08},
++    }
++    base.update(over)
++    return base
++
++
++# ---------- schéma & nominal ----------
++
++def test_output_schema_plat_16_cles():
++    assert tuple(run_structured_decision(_env()).keys()) == OUTPUT_KEYS
++    assert tuple(run_structured_decision(_env(verdict="REJECT")).keys()) == OUTPUT_KEYS  # BLOCKED : même schéma
++    assert run_structured_decision(_env())["order_key"] == ORDER_KEY
++
++
++def test_nominal_accept_emet_decision():
++    v = run_structured_decision(_env())
++    assert v["status"] == PASS and v["blocked_by"] is None
++    assert v["decision_type"] == DECISION_TYPE and v["decision_status"] == DECISION_STATUS
++    assert v["decision_id"].startswith("DECISION-") and len(v["decision_id"]) == len("DECISION-") + 64
++    assert v["targets"] == [{"object_public_id": "OBJ-0001", "frame": "CODE"}]
++    assert v["claims_retained"] == [{"object_public_id": "OBJ-0001", "frame": "CODE", "canon": "C"}]
++    assert v["claims_rejected"] == []
++    assert v["constraints"] == [{"object_public_id": "OBJ-0001", "frame": "CODE", "operant": "OP", "applied": True}]
++    assert v["referential_fingerprint"] == FP and v["source_response_fingerprint"] == FP
++    assert v["justification_refs"]["canon_refs"] == ["C"] and v["justification_refs"]["operant_refs"] == ["OP"]
++    assert isinstance(v["CONTENT_SHA256"], str) and len(v["CONTENT_SHA256"]) == 64
++
++
++def test_content_sha256_exclut_son_propre_champ():
++    # CONTENT_SHA256 est calculé sur l'objet final SANS le champ CONTENT_SHA256 (P-C2) : non auto-référent.
++    v = run_structured_decision(_env())
++    obj_sans = {k: v[k] for k in OUTPUT_KEYS if k != "CONTENT_SHA256"}
++    from zoran_v2.structured_decision import _canonical_sha256
++    recompute = _canonical_sha256(obj_sans)
++    assert v["CONTENT_SHA256"] == recompute
++
++
++def test_claim_rejete_verbatim():
++    resp = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                               "canon_findings": [{"canon": "C", "admissible": False}],
++                               "operant_outcomes": [{"operant": "OP", "applied": False, "reason_code": "NOT_APPLICABLE"}]}])
++    v = run_structured_decision(_env(response=resp))
++    assert v["status"] == PASS
++    assert v["claims_rejected"] == [{"object_public_id": "OBJ-0001", "frame": "CODE", "canon": "C"}]
++    assert v["claims_retained"] == []
++    assert v["constraints"][0]["reason_code"] == "NOT_APPLICABLE"
++
++
++# ---------- 16 contre-exemples adversariaux (→ BLOCKED) ----------
++
++def test_CE1_verdict_non_accept_bloque():
++    for bad in ("REJECT", "QUARANTINE", None, "accept"):
++        v = run_structured_decision(_env(verdict=bad))
++        assert v["status"] == BLOCKED and _code(v) == NOT_ADMITTED, bad
++        assert v["decision_id"] is None
++
++
++def test_CE2_status_08_non_pass_bloque():
++    env = _env()
++    env["coherence_2"] = {**env["coherence_2"], "status": "BLOCKED"}
++    v = run_structured_decision(env)
++    assert v["status"] == BLOCKED and _code(v) == UPSTREAM_NOT_PASS and v["blocked_by"].endswith("@08_COHERENCE_2")
++
++
++def test_CE3_authorize_09_entier_1_bloque():
++    assert _code(run_structured_decision(_env(authorize_09=1))) == NOT_ADMITTED
++
++
++def test_CE4_authorize_09_str_true_bloque():
++    assert _code(run_structured_decision(_env(authorize_09="true"))) == NOT_ADMITTED
++
++
++def test_CE5_authorize_09_true_mais_verdict_reject_bloque():
++    assert _code(run_structured_decision(_env(verdict="REJECT", authorize_09=True))) == NOT_ADMITTED
++
++
++def test_CE6_fingerprint_08_diverge_de_04_bloque():
++    assert _code(run_structured_decision(_env(fp08="FP_A", fp04="FP_B"))) == FINGERPRINT_CHAIN
++
++
++def test_CE7_fingerprint_reponse_07_diverge_bloque():
++    assert _code(run_structured_decision(_env(response=_response(fingerprint="FP_X")))) == RESPONSE_MALFORMED
++
++
++def test_CE8_reponse_schema_invalide_bloque():
++    bad = _response()
++    del bad["results"]
++    assert _code(run_structured_decision(_env(response=bad))) == RESPONSE_MALFORMED
++
++
++def test_CE9_canon_hors_attendu_06_bloque():
++    resp = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                               "canon_findings": [{"canon": "INVENTED", "admissible": True}],
++                               "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    assert _code(run_structured_decision(_env(response=resp))) == PROVENANCE
++
++
++def test_CE10_operant_hors_attendu_06_bloque():
++    resp = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                               "canon_findings": [{"canon": "C", "admissible": True}],
++                               "operant_outcomes": [{"operant": "INVENTED", "applied": True}]}])
++    assert _code(run_structured_decision(_env(response=resp))) == PROVENANCE
++
++
++def test_CE11_opid_hors_cibles_06_bloque():
++    resp = _response(results=[{"object_public_id": "OBJ-9999", "frame": "CODE",
++                               "canon_findings": [{"canon": "C", "admissible": True}],
++                               "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    assert _code(run_structured_decision(_env(response=resp))) == PROVENANCE
++
++
++def test_CE12_fuite_x1f_bloque():
++    resp = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                               "canon_findings": [{"canon": "C\x1fLEAK", "admissible": True}],
++                               "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    assert _code(run_structured_decision(_env(response=resp))) == LEAK
++
++
++def test_CE13_upstream_non_pass_bloque():
++    for key, comp in (("runtime_check", "00_RUNTIME_CHECK"), ("coherence_engine", "05_COHERENCE_ENGINE"),
++                      ("llm_request_build", "06_LLM_REQUEST_BUILD"), ("llm_execution", "07_LLM_EXECUTION")):
++        env = _env()
++        env[key] = {**env[key], "status": "BLOCKED"}
++        v = run_structured_decision(env)
++        assert v["status"] == BLOCKED and _code(v) == UPSTREAM_NOT_PASS and v["blocked_by"].endswith("@" + comp), comp
++
++
++def test_CE14_targets_06_malformees_bloque():
++    for bad in ([{"object_public_id": "BAD", "kind_public": "code", "frame": "CODE", "canons": ["C"], "operants": ["OP"]}],
++                [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE", "canons": ["C"]}],
++                []):
++        assert _code(run_structured_decision(_env(targets=bad))) == REQUEST_MALFORMED, bad
++
++
++def test_CE15_decision_id_et_content_deterministes():
++    a = run_structured_decision(_env())
++    b = run_structured_decision(_env())
++    assert a["decision_id"] == b["decision_id"] and a["CONTENT_SHA256"] == b["CONTENT_SHA256"]
++
++
++def test_CE16_meme_fingerprint_contenu_different_id_different():
++    r_true = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                                 "canon_findings": [{"canon": "C", "admissible": True}],
++                                 "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    r_false = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                                  "canon_findings": [{"canon": "C", "admissible": False}],
++                                  "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    id_t = run_structured_decision(_env(response=r_true))["decision_id"]
++    id_f = run_structured_decision(_env(response=r_false))["decision_id"]
++    assert id_t != id_f
++
++
++# ---------- T-2 : conservation EXACTE des chaînes (point 2 Fred) ----------
++
++def test_decision_id_differe_si_seul_kind_public_differe():
++    target_code = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
++                    "canons": ["C"], "operants": ["OP"]}]
++    target_text = [{"object_public_id": "OBJ-0001", "kind_public": "text", "frame": "CODE",
++                    "canons": ["C"], "operants": ["OP"]}]
++
++    id_code = run_structured_decision(_env(targets=target_code))["decision_id"]
++    id_text = run_structured_decision(_env(targets=target_text))["decision_id"]
++
++    assert id_code != id_text
++
++
++def test_surrogates_unicode_bloquent_sans_hash_crash_sur_tous_les_porteurs():
++    bad = "bad\ud800value"
++    cases = {
++        "kind_public": _env(targets=[
++            {"object_public_id": "OBJ-0001", "kind_public": bad, "frame": "CODE",
++             "canons": ["C"], "operants": ["OP"]}]),
++        "frame": _env(
++            targets=[{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": bad,
++                      "canons": ["C"], "operants": ["OP"]}],
++            response=_response(results=[
++                {"object_public_id": "OBJ-0001", "frame": bad,
++                 "canon_findings": [{"canon": "C", "admissible": True}],
++                 "operant_outcomes": [{"operant": "OP", "applied": True}]}])),
++        "canon": _env(
++            targets=[{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
++                      "canons": [bad], "operants": ["OP"]}],
++            response=_response(results=[
++                {"object_public_id": "OBJ-0001", "frame": "CODE",
++                 "canon_findings": [{"canon": bad, "admissible": True}],
++                 "operant_outcomes": [{"operant": "OP", "applied": True}]}])),
++        "operant": _env(
++            targets=[{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
++                      "canons": ["C"], "operants": [bad]}],
++            response=_response(results=[
++                {"object_public_id": "OBJ-0001", "frame": "CODE",
++                 "canon_findings": [{"canon": "C", "admissible": True}],
++                 "operant_outcomes": [{"operant": bad, "applied": True}]}])),
++        "fingerprint": _env(
++            fp08=bad, fp04=bad, request_fp=bad, response=_response(fingerprint=bad)),
++    }
++
++    for carrier, env in cases.items():
++        out = run_structured_decision(env)
++        assert out["status"] == BLOCKED, carrier
++        assert _code(out) == NON_SCALAR_UNICODE, carrier
++        assert out["decision_id"] is None, carrier
++
++
++def test_surrogate_guard_est_recursif_sur_cles_et_valeurs_et_accepte_unicode_scalaire():
++    from zoran_v2.structured_decision import _has_surrogate_codepoint
++
++    assert _has_surrogate_codepoint({"outer": [{"bad\ud800key": "ok"}]}) is True
++    assert _has_surrogate_codepoint({"outer": [{"key": "bad\udfffvalue"}]}) is True
++    assert _has_surrogate_codepoint({"outer": [{"emoji": "😀", "accent": "café"}]}) is False
++
++
++def _env_for_canon(canon):
++    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE",
++             "canons": [canon], "operants": ["OP"]}]
++    resp = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                               "canon_findings": [{"canon": canon, "admissible": True}],
++                               "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    return _env(targets=tgts, response=resp)
++
++
++def test_T2_nfc_vs_nfd_ids_differents():
++    base = "café"  # é = U+00E9
++    nfc = run_structured_decision(_env_for_canon(unicodedata.normalize("NFC", base)))
++    nfd = run_structured_decision(_env_for_canon(unicodedata.normalize("NFD", base)))
++    assert nfc["status"] == PASS and nfd["status"] == PASS
++    assert nfc["decision_id"] != nfd["decision_id"]                # conservation exacte -> ids différents
++
++
++def test_T2_crlf_vs_lf_ids_differents():
++    crlf = run_structured_decision(_env_for_canon("A\r\nB"))
++    lf = run_structured_decision(_env_for_canon("A\nB"))
++    assert crlf["status"] == PASS and lf["status"] == PASS
++    assert crlf["decision_id"] != lf["decision_id"]
++
++
++def test_T2_ordre_des_cles_json_id_identique():
++    # même contenu logique, ordre d'INSERTION des clés différent (résultat + cible) -> MÊME decision_id.
++    r1 = {"object_public_id": "OBJ-0001", "frame": "CODE",
++          "canon_findings": [{"canon": "C", "admissible": True}],
++          "operant_outcomes": [{"operant": "OP", "applied": True}]}
++    r2 = {"operant_outcomes": [{"applied": True, "operant": "OP"}],
++          "canon_findings": [{"admissible": True, "canon": "C"}],
++          "frame": "CODE", "object_public_id": "OBJ-0001"}
++    t1 = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE", "canons": ["C"], "operants": ["OP"]}]
++    t2 = [{"operants": ["OP"], "canons": ["C"], "frame": "CODE", "kind_public": "code", "object_public_id": "OBJ-0001"}]
++    a = run_structured_decision(_env(targets=t1, response=_response(results=[r1])))
++    b = run_structured_decision(_env(targets=t2, response=_response(results=[r2])))
++    assert a["status"] == PASS and b["status"] == PASS
++    assert a["decision_id"] == b["decision_id"]
++
++
++# ---------- COUVERTURE EXACTE (P1) ----------
++
++def test_couverture_partielle_bloque():
++    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE", "canons": ["C"], "operants": ["OP"]},
++            {"object_public_id": "OBJ-0002", "kind_public": "code", "frame": "CODE", "canons": ["C"], "operants": ["OP"]}]
++    resp = _response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++                               "canon_findings": [{"canon": "C", "admissible": True}],
++                               "operant_outcomes": [{"operant": "OP", "applied": True}]}])
++    assert _code(run_structured_decision(_env(targets=tgts, response=resp))) == COVERAGE
++
++
++def test_couverture_exacte_deux_cibles_passe():
++    tgts = [{"object_public_id": "OBJ-0001", "kind_public": "code", "frame": "CODE", "canons": ["C"], "operants": ["OP"]},
++            {"object_public_id": "OBJ-0002", "kind_public": "code", "frame": "CODE", "canons": ["C"], "operants": ["OP"]}]
++    res = [{"object_public_id": "OBJ-0001", "frame": "CODE",
++            "canon_findings": [{"canon": "C", "admissible": True}], "operant_outcomes": [{"operant": "OP", "applied": True}]},
++           {"object_public_id": "OBJ-0002", "frame": "CODE",
++            "canon_findings": [{"canon": "C", "admissible": True}], "operant_outcomes": [{"operant": "OP", "applied": True}]}]
++    v = run_structured_decision(_env(targets=tgts, response=_response(results=res)))
++    assert v["status"] == PASS and len(v["targets"]) == 2
++
++
++# ---------- invariants divers ----------
++
++def test_immutabilite_envelope():
++    e = _env()
++    snap = copy.deepcopy(e)
++    run_structured_decision(e)
++    assert e == snap
++
++
++def test_typeerror_envelope_non_dict():
++    with pytest.raises(TypeError):
++        run_structured_decision(None)
++
++
++def test_gouvernance_contrat_complet():
++    for k in GOVERNANCE_REQUIRED_KEYS:
++        assert k in GOVERNANCE and GOVERNANCE[k], k
++    assert GOVERNANCE["OBJECT_ID"] == "ZORAN-V2-COMPONENT-09-STRUCTURED-DECISION"
++    assert PROVENANCE_DECL["CANONICAL_SPEC"] == "SPEC_ENGINE_09_STRUCTURED_DECISION"
++
++
++def test_garde_enumerante_preuves_consommees():
++    cases = [
++        ("08.verdict", _env(verdict="REJECT"), NOT_ADMITTED),
++        ("08.authorize_09 strict", _env(authorize_09=1), NOT_ADMITTED),
++        ("chain 04/08", _env(fp08="A", fp04="B"), FINGERPRINT_CHAIN),
++        ("07.response fp", _env(response=_response(fingerprint="Z")), RESPONSE_MALFORMED),
++        ("06.targets", _env(targets=[]), REQUEST_MALFORMED),
++        ("06.request fp", _env(request_fp="Z"), REQUEST_MALFORMED),
++        ("provenance canon", _env(response=_response(results=[{"object_public_id": "OBJ-0001", "frame": "CODE",
++            "canon_findings": [{"canon": "X", "admissible": True}], "operant_outcomes": [{"operant": "OP", "applied": True}]}])), PROVENANCE),
++    ]
++    for label, env, expected in cases:
++        v = run_structured_decision(env)
++        assert v["status"] == BLOCKED and _code(v) == expected, (label, v.get("blocked_by"))
+diff --git a/zoran_v2/structured_decision.py b/zoran_v2/structured_decision.py
+new file mode 100644
+index 0000000..586ebd7
+--- /dev/null
++++ b/zoran_v2/structured_decision.py
+@@ -0,0 +1,392 @@
++"""09_STRUCTURED_DECISION — porte 9 du pipeline de raisonnement ZORAN V2.
++
++Transforme EXCLUSIVEMENT une réponse ADMISE par 08 (verdict=ACCEPT, authorize_09 is True) en un
++OBJET-DÉCISION déterministe, typé, traçable, SANS nouvelle génération. NE juge pas (08), NE résume
++pas, NE complète pas, N'invente pas, NE choisit ni N'exécute aucune action (→ 10). Déterministe,
++structuré-only, immuable, fail-closed 00→08, anti-fuite récursive. NO_LLM / NO_NETWORK.
++
++Contrat figé : specs/SPEC_ENGINE_09_STRUCTURED_DECISION.md (+ refinements Fred 2026-07-15).
++- Canonicalisation : conservation EXACTE des chaînes (aucun NFC/NFD/trim/CRLF) ; clés triées ;
++  séparateurs déterministes ; UTF-8 ; ordre des listes défini par le contrat.
++- decision_id + CONTENT_SHA256 via la primitive canonique EXISTANTE `_fingerprint` (aucun second hasher).
++- Construction OBJECT_FIRST en 2 phases : payload sans identifiants auto-référents -> decision_id ;
++  objet final -> CONTENT_SHA256 (hash de l'objet final SANS CONTENT_SHA256).
++"""
++from __future__ import annotations
++
++import re
++
++from zoran_v2.canon_determination import _fingerprint as _canon_fingerprint
++
++COMPONENT_ID = "09_STRUCTURED_DECISION"
++VERSION = "1.0.0"
++
++GOVERNANCE = {
++    "OBJECT_ID": "ZORAN-V2-COMPONENT-09-STRUCTURED-DECISION",
++    "META_ID": "META-ZORAN-V2-COMPONENT-09",
++    "VERSION": VERSION,
++    "OWNER": "FRED",
++    "PROVENANCE": "MISSION ENGINE_09_STRUCTURED_DECISION · branche feat/engine-09-structured-decision",
++    "GUARD_IDS": [
++        "STRUCTURED_ONLY", "NO_LLM", "NO_NETWORK", "NO_NEW_INFORMATION", "NO_ACTION_EXECUTION",
++        "FAIL_CLOSED", "ANTI_LEAK", "IMMUTABLE", "DETERMINISTIC",
++        "ADMITTED_ONLY_08_ACCEPT", "FINGERPRINT_CHAIN_04_07_08", "EXACT_COVERAGE_06_TARGETS",
++        "CANONICAL_PRIMITIVE_REUSED", "OBJECT_FIRST_CONTENT_SHA256", "EXACT_STRING_PRESERVATION",
++        "DECISION_ID_COVERS_COMPLETE_TARGET_CONTEXT",
++        "UNICODE_SCALAR_VALUES_ONLY_BEFORE_SEALING",
++    ],
++    "TRACEABILITY": "objet-decision {decision_id, CONTENT_SHA256, claims_retained/rejected, constraints, justification_refs} ; primitive canonique _fingerprint reutilisee ; fingerprints 04/07 ; SHA git ; run CI",
++    "VALIDATION": "tests deterministes pytest + CI Python 3.13",
++    "ROLLBACK": "git : branche non fusionnee ; git revert du commit",
++    "DETECTION_MODIF": "SHA git + CI GitHub Actions",
++    "ALERTE": "status=BLOCKED si 00..08 != PASS, verdict != ACCEPT, authorize_09 non-True strict, fingerprint 04/07/08 divergent, requete 06 / reponse 07 malformee, provenance canon/operant/cible hors 06, couverture incomplete, ou fuite",
++    "ANTI_REGRESSION": "tests contre-exemples adversariaux + determinisme decision_id/CONTENT_SHA256 + conservation exacte des chaines (NFC/NFD, CRLF/LF, ordre cles) + couverture exacte + anti-fuite + gouvernance ; gate CI",
++}
++
++GOVERNANCE_REQUIRED_KEYS = (
++    "OBJECT_ID", "META_ID", "VERSION", "OWNER", "PROVENANCE", "GUARD_IDS",
++    "TRACEABILITY", "VALIDATION", "ROLLBACK", "DETECTION_MODIF", "ALERTE", "ANTI_REGRESSION",
++)
++
++PROVENANCE_DECL = {
++    "SOURCE_TYPE": "new",
++    "CANONICAL_SPEC": "SPEC_ENGINE_09_STRUCTURED_DECISION",
++    "SOURCE_SHA": None,
++    "RETAINED_BEHAVIOR": "derivation deterministe d'un objet-decision a partir d'une reponse ADMISE par 08, sans generation",
++    "REJECTED_BEHAVIOR": "generation, appel LLM, resume libre, completion, choix/execution d'action, invention, re-jugement",
++    "LEGACY_CHECK": "aucun comportement du registre FORBIDDEN reintroduit",
++    "BEHAVIOR_FLAGS": {"requests_llm_prechoices": False},
++}
++
++PASS = "PASS"
++BLOCKED = "BLOCKED"
++ACCEPT = "ACCEPT"
++
++DECISION_TYPE = "STRUCTURED_ANALYSIS_DECISION_V1"
++DECISION_STATUS = "DECIDED_ON_ACCEPT"
++
++RESPONSE_SCHEMA_ID = "RESPONSE_STRUCTURED_ANALYSIS_V1"
++EXPECTED_INSTRUCTION_KIND = "STRUCTURED_ANALYSIS_V1"
++_RESP_ROOT_KEYS = frozenset(("response_schema", "instruction_kind", "referential_fingerprint", "results"))
++_RESULT_KEYS = frozenset(("object_public_id", "frame", "canon_findings", "operant_outcomes"))
++_CANON_FINDING_KEYS = frozenset(("canon", "admissible"))
++_OC_KEYS_APPLIED = frozenset(("operant", "applied"))
++_OC_KEYS_NOT_APPLIED = frozenset(("operant", "applied", "reason_code"))
++_REASON_CODES = frozenset(("NOT_APPLICABLE", "INSUFFICIENT_EVIDENCE", "CONSTRAINT_BLOCKED", "CANON_CONFLICT"))
++_TARGET_KEYS = frozenset(("object_public_id", "kind_public", "frame", "canons", "operants"))
++_OBJ_PUBLIC_ID_RE = re.compile(r"^OBJ-\d{4,}$")
++
++_PII_SEP = "\x1f"
++_FORBIDDEN_KEYS = frozenset((
++    "object_key", "normalized", "provenance", "object_id_map",
++    "raw_text", "content", "prompt", "user_value", "explanation",
++))
++
++_STEPS_00_08 = (
++    ("runtime_check", "00_RUNTIME_CHECK"),
++    ("object_discovery", "01_OBJECT_DISCOVERY"),
++    ("frame_selection", "02_ANALYSIS_FRAME_SELECTION"),
++    ("operants_operes", "03_OPERANTS_OPERES_ANALYSIS"),
++    ("canon_determination", "04_CANON_DETERMINATION"),
++    ("coherence_engine", "05_COHERENCE_ENGINE"),
++    ("llm_request_build", "06_LLM_REQUEST_BUILD"),
++    ("llm_execution", "07_LLM_EXECUTION"),
++    ("coherence_2", "08_COHERENCE_2"),
++)
++
++# Codes blocked_by DÉDIÉS 09 (le champ blocked_by = "<code>@<frontière/moteur source>", P2).
++UPSTREAM_NOT_PASS = "09_STRUCTURED_DECISION_UPSTREAM_NOT_PASS"
++NOT_ADMITTED = "09_STRUCTURED_DECISION_NOT_ADMITTED"
++FINGERPRINT_CHAIN = "09_STRUCTURED_DECISION_FINGERPRINT_CHAIN"
++REQUEST_MALFORMED = "09_STRUCTURED_DECISION_REQUEST_MALFORMED"
++RESPONSE_MALFORMED = "09_STRUCTURED_DECISION_RESPONSE_MALFORMED"
++PROVENANCE = "09_STRUCTURED_DECISION_PROVENANCE"
++COVERAGE = "09_STRUCTURED_DECISION_COVERAGE"
++LEAK = "09_STRUCTURED_DECISION_LEAK"
++NON_SCALAR_UNICODE = "09_STRUCTURED_DECISION_NON_SCALAR_UNICODE"
++
++ORDER_KEY = "structured_decision_deterministe_puis_scellement"
++
++# Objet final PLAT (P-C2). CONTENT_SHA256 avant order_key.
++OUTPUT_KEYS = (
++    "component", "version", "status", "blocked_by",
++    "decision_id", "decision_type", "decision_status", "targets",
++    "claims_retained", "claims_rejected", "constraints", "justification_refs",
++    "referential_fingerprint", "source_response_fingerprint", "CONTENT_SHA256", "order_key",
++)
++_DECISION_FIELDS = (
++    "decision_id", "decision_type", "decision_status", "targets",
++    "claims_retained", "claims_rejected", "constraints", "justification_refs",
++    "referential_fingerprint", "source_response_fingerprint",
++)
++
++
++def _canonical_sha256(value) -> str:
++    """Réutilise DIRECTEMENT la primitive canonique existante `_fingerprint` (aucun second hasher).
++    `_fingerprint` attend une liste de records triables par 'id' -> on emballe la valeur en un record
++    unique déterministe. Sérialisation : json trié + séparateurs déterministes + UTF-8, CHAÎNES EXACTES."""
++    return _canon_fingerprint([{"id": "__zoran_canonical__", "value": value}])
++
++
++def _finalize(fields: dict) -> dict:
++    """Assemble l'objet final PLAT (ordre OUTPUT_KEYS) puis calcule CONTENT_SHA256 sur l'objet SANS ce champ."""
++    obj = {k: fields.get(k) for k in OUTPUT_KEYS}
++    obj["CONTENT_SHA256"] = None
++    obj["CONTENT_SHA256"] = _canonical_sha256({k: v for k, v in obj.items() if k != "CONTENT_SHA256"})
++    return obj
++
++
++def _blocked(code: str, source: str) -> dict:
++    fields = {"component": COMPONENT_ID, "version": VERSION, "status": BLOCKED,
++              "blocked_by": f"{code}@{source}", "order_key": ORDER_KEY}
++    return _finalize(fields)
++
++
++def _has_internal_leak(value) -> bool:
++    if isinstance(value, str):
++        return _PII_SEP in value
++    if isinstance(value, dict):
++        for k, v in value.items():
++            if isinstance(k, str) and (k in _FORBIDDEN_KEYS or _PII_SEP in k):
++                return True
++            if _has_internal_leak(k) or _has_internal_leak(v):
++                return True
++        return False
++    if isinstance(value, (list, tuple)):
++        return any(_has_internal_leak(e) for e in value)
++    return False
++
++
++def _has_surrogate_codepoint(value) -> bool:
++    """Détecte récursivement tout codepoint surrogate, interdit en UTF-8 scalaire."""
++    if isinstance(value, str):
++        return any("\ud800" <= char <= "\udfff" for char in value)
++    if isinstance(value, dict):
++        return any(_has_surrogate_codepoint(key) or _has_surrogate_codepoint(item)
++                   for key, item in value.items())
++    if isinstance(value, (list, tuple)):
++        return any(_has_surrogate_codepoint(item) for item in value)
++    return False
++
++
++def _is_str_list(x) -> bool:
++    return isinstance(x, list) and all(isinstance(e, str) and e for e in x)
++
++
++def _is_bool(x) -> bool:
++    return isinstance(x, bool)
++
++
++def _validate_targets_06(request, fp04):
++    if not isinstance(request, dict):
++        return None
++    if request.get("referential_fingerprint") != fp04:
++        return None
++    targets = request.get("targets")
++    if not (isinstance(targets, list) and targets):
++        return None
++    expected = {}
++    for t in targets:
++        if not isinstance(t, dict) or set(t) != _TARGET_KEYS:
++            return None
++        opid, frame = t.get("object_public_id"), t.get("frame")
++        if not (isinstance(opid, str) and _OBJ_PUBLIC_ID_RE.match(opid)):
++            return None
++        if not (isinstance(t.get("kind_public"), str) and isinstance(frame, str) and frame):
++            return None
++        canons, operants = t.get("canons"), t.get("operants")
++        if not (_is_str_list(canons) and _is_str_list(operants)):
++            return None
++        if len(set(canons)) != len(canons) or len(set(operants)) != len(operants):
++            return None
++        if (opid, frame) in expected:
++            return None
++        expected[(opid, frame)] = {"canons": set(canons), "operants": set(operants),
++                                   "kind_public": t["kind_public"]}
++    return expected
++
++
++def _validate_response_07(response, fp04):
++    if not isinstance(response, dict) or set(response) != _RESP_ROOT_KEYS:
++        return None
++    if response.get("response_schema") != RESPONSE_SCHEMA_ID:
++        return None
++    if response.get("instruction_kind") != EXPECTED_INSTRUCTION_KIND:
++        return None
++    if response.get("referential_fingerprint") != fp04:
++        return None
++    results = response.get("results")
++    if not isinstance(results, list):
++        return None
++    seen = set()
++    for r in results:
++        if not isinstance(r, dict) or set(r) != _RESULT_KEYS:
++            return None
++        opid, frame = r.get("object_public_id"), r.get("frame")
++        if not (isinstance(opid, str) and isinstance(frame, str)):
++            return None
++        if (opid, frame) in seen:
++            return None
++        seen.add((opid, frame))
++        cfs, ops = r.get("canon_findings"), r.get("operant_outcomes")
++        if not (isinstance(cfs, list) and isinstance(ops, list)):
++            return None
++        seen_canon = set()
++        for cf in cfs:
++            if not isinstance(cf, dict) or set(cf) != _CANON_FINDING_KEYS:
++                return None
++            if not (isinstance(cf.get("canon"), str) and cf["canon"] and _is_bool(cf.get("admissible"))):
++                return None
++            if cf["canon"] in seen_canon:
++                return None
++            seen_canon.add(cf["canon"])
++        seen_op = set()
++        for oc in ops:
++            if not isinstance(oc, dict):
++                return None
++            applied = oc.get("applied")
++            if not _is_bool(applied):
++                return None
++            if applied:
++                if set(oc) != _OC_KEYS_APPLIED or not (isinstance(oc.get("operant"), str) and oc["operant"]):
++                    return None
++            else:
++                if (set(oc) != _OC_KEYS_NOT_APPLIED or not (isinstance(oc.get("operant"), str) and oc["operant"])
++                        or oc.get("reason_code") not in _REASON_CODES):
++                    return None
++            if oc["operant"] in seen_op:
++                return None
++            seen_op.add(oc["operant"])
++    return results
++
++
++def run_structured_decision(envelope: dict) -> dict:
++    """Fonction PURE : envelope(00→08) -> objet-décision structuré PLAT, ou BLOCKED (fail-closed)."""
++    if not isinstance(envelope, dict):
++        raise TypeError("envelope doit être un dict")
++
++    # 1) Prérequis 00→08 = PASS (tout ABANDON/dégradé/incohérent -> BLOCKED).
++    for key, comp in _STEPS_00_08:
++        node = envelope.get(key)
++        if not (isinstance(node, dict) and node.get("status") == PASS):
++            return _blocked(UPSTREAM_NOT_PASS, comp)
++
++    # 2) Admissibilité 08 : verdict==ACCEPT ET authorize_09 is True (identité stricte).
++    c2 = envelope["coherence_2"]
++    if c2.get("verdict") != ACCEPT:
++        return _blocked(NOT_ADMITTED, "08_COHERENCE_2.verdict")
++    if c2.get("authorize_09") is not True:
++        return _blocked(NOT_ADMITTED, "08_COHERENCE_2.authorize_09")
++    fp08 = c2.get("referential_fingerprint")
++    if not (isinstance(fp08, str) and fp08):
++        return _blocked(FINGERPRINT_CHAIN, "08_COHERENCE_2.referential_fingerprint")
++
++    # 3) Chaîne de fingerprint : 04 gelé == 08.
++    cd = envelope["canon_determination"]
++    referential = cd.get("canon_referential")
++    fp04 = referential.get("fingerprint") if isinstance(referential, dict) else None
++    if not (isinstance(fp04, str) and fp04 and fp04 == fp08):
++        return _blocked(FINGERPRINT_CHAIN, "04_CANON_DETERMINATION.fingerprint")
++
++    # 4) Anti-fuite récursif sur les entrées consommées.
++    lrb = envelope["llm_request_build"]
++    ex = envelope["llm_execution"]
++    if _has_internal_leak(lrb.get("llm_request")) or _has_internal_leak(ex.get("response")):
++        return _blocked(LEAK, "frontier:06/07.leak")
++
++    # 5) Requête 06 AUTORITAIRE : univers des cibles (indépendant du résultat).
++    if lrb.get("authorized") is not True:
++        return _blocked(REQUEST_MALFORMED, "06_LLM_REQUEST_BUILD.authorized")
++    expected = _validate_targets_06(lrb.get("llm_request"), fp04)
++    if expected is None:
++        return _blocked(REQUEST_MALFORMED, "06_LLM_REQUEST_BUILD.targets")
++
++    # 6) Réponse 07 ADMISE : schéma exact + fingerprint == 04.
++    if ex.get("executed") is not True:
++        return _blocked(RESPONSE_MALFORMED, "07_LLM_EXECUTION.executed")
++    results = _validate_response_07(ex.get("response"), fp04)
++    if results is None:
++        return _blocked(RESPONSE_MALFORMED, "07_LLM_EXECUTION.response")
++
++    # 7) Provenance : chaque (opid,frame)/canon/opérant ⊆ attendus 06.
++    present = {}
++    for r in results:
++        pair = (r["object_public_id"], r["frame"])
++        if pair not in expected:
++            return _blocked(PROVENANCE, "frontier:07.response<->06.targets")
++        exp = expected[pair]
++        for cf in r["canon_findings"]:
++            if cf["canon"] not in exp["canons"]:
++                return _blocked(PROVENANCE, "frontier:07.canon<->06")
++        for oc in r["operant_outcomes"]:
++            if oc["operant"] not in exp["operants"]:
++                return _blocked(PROVENANCE, "frontier:07.operant<->06")
++        present[pair] = r
++
++    # 8) COUVERTURE EXACTE (P1).
++    if set(present) != set(expected):
++        return _blocked(COVERAGE, "frontier:06.targets_coverage")
++
++    # 9) Dérivation DÉTERMINISTE (verbatim, chaînes EXACTES, tri canonique des listes).
++    claims_retained, claims_rejected, constraints = [], [], []
++    canon_refs, operant_refs = set(), set()
++    for pair in sorted(expected):
++        r = present[pair]
++        opid, frame = pair
++        for cf in sorted(r["canon_findings"], key=lambda c: c["canon"]):
++            entry = {"object_public_id": opid, "frame": frame, "canon": cf["canon"]}
++            (claims_retained if cf["admissible"] else claims_rejected).append(entry)
++            canon_refs.add(cf["canon"])
++        for oc in sorted(r["operant_outcomes"], key=lambda o: o["operant"]):
++            c = {"object_public_id": opid, "frame": frame, "operant": oc["operant"], "applied": oc["applied"]}
++            if not oc["applied"]:
++                c["reason_code"] = oc["reason_code"]
++            constraints.append(c)
++            operant_refs.add(oc["operant"])
++
++    targets = [{"object_public_id": o, "frame": f} for (o, f) in sorted(expected)]
++    justification_refs = {
++        "canon_refs": sorted(canon_refs),
++        "operant_refs": sorted(operant_refs),
++        "target_refs": [[o, f] for (o, f) in sorted(expected)],
++        "response_fingerprint": fp04,
++        "referential_fingerprint": fp04,
++    }
++
++    # 10) PHASE 1 : decision_id = sha256 d'un payload SANS identifiants auto-référents (ni decision_id, ni CONTENT_SHA256).
++    normalized_response = [
++        {"object_public_id": o, "frame": f,
++         "canon_findings": sorted(({"canon": cf["canon"], "admissible": cf["admissible"]}
++                                   for cf in present[(o, f)]["canon_findings"]), key=lambda c: c["canon"]),
++         "operant_outcomes": sorted(({k: oc[k] for k in sorted(oc)}
++                                     for oc in present[(o, f)]["operant_outcomes"]), key=lambda o2: o2["operant"])}
++        for (o, f) in sorted(expected)
++    ]
++    normalized_targets = [
++        {"object_public_id": o, "kind_public": expected[(o, f)]["kind_public"], "frame": f,
++         "canons": sorted(expected[(o, f)]["canons"]), "operants": sorted(expected[(o, f)]["operants"])}
++        for (o, f) in sorted(expected)
++    ]
++    payload_decision = {
++        "decision_type": DECISION_TYPE, "verdict": ACCEPT, "referential_fingerprint": fp04,
++        "targets_06": normalized_targets, "response_07": normalized_response,
++        "claims_retained": claims_retained, "claims_rejected": claims_rejected,
++        "constraints": constraints, "justification_refs": justification_refs,
++    }
++    if _has_surrogate_codepoint(payload_decision):
++        return _blocked(NON_SCALAR_UNICODE, "09_STRUCTURED_DECISION.payload_decision")
++    decision_id = "DECISION-" + _canonical_sha256(payload_decision)
++
++    # 11) PHASE 2 : objet final PLAT + CONTENT_SHA256 (hash de l'objet final SANS CONTENT_SHA256). Aucune auto-référence.
++    fields = {
++        "component": COMPONENT_ID, "version": VERSION, "status": PASS, "blocked_by": None,
++        "decision_id": decision_id, "decision_type": DECISION_TYPE, "decision_status": DECISION_STATUS,
++        "targets": targets, "claims_retained": claims_retained, "claims_rejected": claims_rejected,
++        "constraints": constraints, "justification_refs": justification_refs,
++        "referential_fingerprint": fp04, "source_response_fingerprint": fp04, "order_key": ORDER_KEY,
++    }
++    return _finalize(fields)
++
++
++def main(envelope: dict) -> dict:
++    return run_structured_decision(envelope)
