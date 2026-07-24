@@ -1,0 +1,19 @@
+{
+  "OBJECT_ID": "PR12_ENGINE08",
+  "SHA_AUDITED": "37f40b169eb1e94aab054bf424f070a9289cb9ad",
+  "pr": 12,
+  "branch_audited": "mission/engine-08-coherence-2",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT",
+  "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE) — preparation d'audit, PAS certification",
+  "created": "2026-07-15T16:04:30+02:00",
+  "rebase_note": "37f40b1 = rebase mecanique de 8227167 sur integration@2e44923 (0 conflit, logique 08 identique)",
+  "ci": "success ; local 327 passed (58 cibles 08, 107 sur 06/07/08), 1 deselected py_lt_314 env-only",
+  "product_files_touched_vs_integration": ["zoran_v2/coherence_2.py", "tests/test_coherence_2.py", "CANONICAL_SOURCES.yaml"],
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "830c1f5b8de304e012d6906d8f755d7d901c2651723c5de7d29d9618d57c3d31", "bytes": 3264},
+    {"name": "PREP_AUDIT_08.md", "sha256": "fb8bc92dd673dcb3b4e823d20c101d5bc529e6674be9463030f58a0c259e27eb", "bytes": 8131},
+    {"name": "diff_ref_integration_to_37f40b1.txt", "sha256": "205d31c01f43f6aaffa5031e115a734c165611deab091c4f8affa3f29802f57b", "bytes": 51975}
+  ]
+}

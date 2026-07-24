@@ -1,0 +1,20 @@
+{
+  "OBJECT_ID": "PR12_ENGINE08",
+  "SHA_AUDITED": "a048bcc1d2d86e5d5f9c773a829ec80545b920ec",
+  "pr": 12,
+  "branch_audited": "mission/engine-08-coherence-2",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT",
+  "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE) ; correctif du finding par CODEX_FIXER",
+  "created": "2026-07-15T16:18:36+02:00",
+  "supersedes": "37f40b169eb1e94aab054bf424f070a9289cb9ad (bundle perime)",
+  "finding_closed": "GC-08-P1-FINGERPRINT-CHAIN-05-04 (04.fingerprint == 05.coherence.referential_fingerprint avant validation 06 / authorize_09)",
+  "ci": "success ; local 334 passed (65 cibles 08), 1 deselected py_lt_314 env-only",
+  "product_files_touched_vs_integration": ["zoran_v2/coherence_2.py", "tests/test_coherence_2.py", "CANONICAL_SOURCES.yaml"],
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "673967219b0f4752969cbf7cf98b4a4c1dd95d06e5b0918b76a77d1e5dacf7f5", "bytes": 2829},
+    {"name": "PREP_AUDIT_08.md", "sha256": "e784c496014f6979b7185edcecbc108f47c49e7b00b165c16b0e7e1ac8e8f315", "bytes": 8409},
+    {"name": "diff_ref_integration_to_a048bcc.txt", "sha256": "3c724062ca8e53f0ccfb7ff4cbc35e275ee81dd84e34fed2abcf26f1eedddad4", "bytes": 53778}
+  ]
+}
