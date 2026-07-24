@@ -180,5 +180,93 @@ def run_llm_request_build(envelope: dict) -> dict:
     }
 
 
+def run_semantic_request_build(envelope: dict) -> dict:
+    """Couture 05B→06 fermée, sans modifier le contrat historique de 06.
+
+    La sortie est destinée soit au verbaliseur déterministe de référence, soit
+    à un verbaliseur externe contraint par ``claim_id``. Aucun contenu brut,
+    cadre ou fait supplémentaire n'est fourni au verbaliseur.
+    """
+    if not isinstance(envelope, dict):
+        raise TypeError("envelope doit être un dict")
+    node = envelope.get("semantic_decision")
+    if not (isinstance(node, dict) and node.get("status") == PASS):
+        return {
+            "component": COMPONENT_ID,
+            "version": VERSION,
+            "status": BLOCKED,
+            "blocked_by": "05B_SEMANTIC_DECISION_V1",
+            "authorized": False,
+            "semantic_request": None,
+        }
+    decision = node.get("semantic_decision")
+    if not (
+        node.get("authorize_06") is True
+        and isinstance(decision, dict)
+        and decision.get("status") == PASS
+        and decision.get("coherence") == {"local": PASS, "general": PASS}
+        and isinstance(decision.get("seal"), dict)
+        and isinstance(decision["seal"].get("hash"), str)
+    ):
+        return {
+            "component": COMPONENT_ID,
+            "version": VERSION,
+            "status": PASS,
+            "blocked_by": None,
+            "authorized": False,
+            "semantic_request": None,
+        }
+
+    claims = decision.get("conclusions")
+    if not isinstance(claims, list) or not claims:
+        return {
+            "component": COMPONENT_ID,
+            "version": VERSION,
+            "status": PASS,
+            "blocked_by": None,
+            "authorized": False,
+            "semantic_request": None,
+        }
+    closed_claims = []
+    for claim in claims:
+        if not isinstance(claim, dict) or set(claim) != {
+            "claim_id", "source_fact_ids", "text", "modality",
+        }:
+            return {
+                "component": COMPONENT_ID,
+                "version": VERSION,
+                "status": BLOCKED,
+                "blocked_by": "05B_SEMANTIC_DECISION_SCHEMA",
+                "authorized": False,
+                "semantic_request": None,
+            }
+        closed_claims.append({
+            "claim_id": claim["claim_id"],
+            "rendered_text": claim["text"],
+            "modality": claim["modality"],
+        })
+
+    return {
+        "component": COMPONENT_ID,
+        "version": VERSION,
+        "status": PASS,
+        "blocked_by": None,
+        "authorized": True,
+        "semantic_request": {
+            "instruction_kind": "CLOSED_CLAIM_RENDER_V1",
+            "decision_id": decision["decision_id"],
+            "decision_hash": decision["seal"]["hash"],
+            "claims": closed_claims,
+            "constraints": {
+                "claim_ids_immutable": True,
+                "claim_order_immutable": True,
+                "modalities_immutable": True,
+                "no_addition": True,
+                "no_omission": True,
+            },
+        },
+    }
+
+
 def main(envelope: dict) -> dict:
     return run_llm_request_build(envelope)

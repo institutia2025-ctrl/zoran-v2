@@ -14,6 +14,8 @@ sources:
     title: Porte 4 — détermination déterministe des canons + gel du référentiel
   - id: SPEC_ENGINE_05_COHERENCE_ENGINE
     title: Porte 5 — moteur de cohérence (1re passe) S canonique + verdict ressource
+  - id: SPEC_CAPABILITY_05B_SEMANTIC_DECISION_V1
+    title: Capacite bornee 05B - decision semantique deterministe scellee avant verbalisation
   - id: SPEC_ENGINE_06_LLM_REQUEST_BUILD
     title: Porte 6 — assemblage déterministe de la requête LLM (respecte veto 05, PII-free)
   - id: SPEC_ENGINE_07_LLM_EXECUTION
