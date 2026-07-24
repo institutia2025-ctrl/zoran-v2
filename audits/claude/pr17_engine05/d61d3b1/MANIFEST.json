@@ -1,0 +1,20 @@
+{
+  "OBJECT_ID": "PR17_ENGINE05",
+  "SHA_AUDITED": "d61d3b107f6da7c1a8c24f7d6c21956817424f6d",
+  "pr": 17,
+  "branch_audited": "fix/baseline-05-coverage-04",
+  "protocol_version": "META-PROTOCOL-V1-PILOT / MINIMUM-DEBT-V1-PILOT",
+  "scoring": "PENDING_GRID_NO_DECIMALS",
+  "kind": "DOCS_ONLY / NO_PRODUCT_CHANGE",
+  "author": "CLAUDE_CODE (BUILD + PREPARE_MERGE) — correctif code par CODEX_FIXER",
+  "created": "2026-07-15T15:40:00+02:00",
+  "upstream_status": {"chatgpt_global_coherence": "APPROVED", "session_b": "probative_replay_pending"},
+  "ci": "pass (runs 29419503966 / 29419506990) ; local 263 passed, 1 deselected (py_lt_314 env-only)",
+  "supersedes": "53167acc5238842ebe65b53ba3252ab15435cf4a (bundle perime)",
+  "finding_closed": "GC-05-P1-CANON-REGISTRY-COMPLETENESS (evolution contractuelle 04->05, commitment registre complet + re-derivation independante)",
+  "files": [
+    {"name": "BUNDLE_SUMMARY.md", "sha256": "5afe83b2acc63a8e68ce9f3e69d51a3524513cb9da9ecf7a42df44b049d49ae1", "bytes": 4502},
+    {"name": "diff_ref_integration_to_d61d3b1.txt", "sha256": "b8163386a61234f58021b17bd750e74369c23ac16e0089aae7e35a8803d58f15", "bytes": 60854},
+    {"name": "PREP_CONTRACT_04_05_FULL_REGISTRY.md", "sha256": "d06ab2e2bd6fd7e698f68ffe688295f1bdbfadaf776d98a79d3d4e13012387be", "bytes": 9294}
+  ]
+}
