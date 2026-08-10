@@ -1,0 +1,9 @@
+# GlyphNet ZORAN v1.1 — CANDIDATE HASHES
+# Status: EXPERIMENTAL / PRIVATE_ADVERSE_AUDIT_REQUIRED / NOT_SEALED
+# Local execution before publication: 9/9 falsifiers PASS
+# This file is NOT a session manifest and does NOT allocate v23.
+# MANIFEST_V22_GLYPHNET_ORIGINAL remains historical evidence for the received v1.0 tuple.
+
+16e02201b3540e1cfa5453c53241681f521062a62844c6c98b93d03c12e6f932  moteur_souverainete.py
+c8f6930a69ceaf2a0ae38538d8b3f146a8733c96e8401327f6342c45e8a165ab  test_falsificateur_souverainete.py
+2fb53dbb607834d518a635db2cd0fe90d0c5c1b452e063a0fcba555c1ac72eba  README.md
