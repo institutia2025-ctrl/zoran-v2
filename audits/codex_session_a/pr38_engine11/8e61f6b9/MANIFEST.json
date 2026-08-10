@@ -1,0 +1,98 @@
+{
+  "MESSAGE_ID": "MSG-20260716T085809-CODEX_SESSION_A-PR38_ENGINE11_BUNDLE",
+  "TIMESTAMP": "2026-07-16T08:58:09+02:00",
+  "FROM": "CODEX_SESSION_A",
+  "TO": [
+    "CHATGPT",
+    "CLAUDE",
+    "FRED",
+    "CODEX_SESSION_B"
+  ],
+  "MISSION_ID": "TX_ZORAN_ENGINE_11_REAUDIT_PROOF_BUNDLE_V1",
+  "OBJECT_ID": "ENGINE-11_PR38",
+  "SHA": "8e61f6b9de27543e484b12d633077dba00b3e271",
+  "TYPE": "REAUDIT_EVIDENCE_BUNDLE",
+  "PRIORITY": "P0",
+  "REQUIRES_ACK": true,
+  "STATUS": "PUBLISHED_PENDING_CHATGPT_REAUDIT",
+  "audit_protocol_version": "META-PROTOCOL-V1-PILOT",
+  "minimum_debt_protocol": "MINIMUM-DEBT-V1-PILOT",
+  "auditor_id": "CODEX_SESSION_A",
+  "result_destination": "ChatGPT GLOBAL_COHERENCE, Claude convergence, Fred merge decision",
+  "repository": "institutia2025-ctrl/zoran-v2",
+  "product_pr": 38,
+  "product_branch": "feat/engine-11-trace-and-close",
+  "base_sha": "aaf1964145419cdcea48c38293a8344f2ead2471",
+  "sha_audited": "8e61f6b9de27543e484b12d633077dba00b3e271",
+  "prior_product_shas": [
+    "4bdcf19cb08e4cdb649cbb3f644f62a519c88a97",
+    "b923f619fa6ced096ec8279104b114637b4b1f09",
+    "22a8be2722d4ebdc1ad64c60b811b8c756a35634"
+  ],
+  "closed_findings_claimed_for_reaudit": [
+    "CSB-11-P1-001_SELF_ASSERTED_EXTERNAL_PROOF_AUTHENTICITY_BYPASS",
+    "GC-11-P1-AUTHORIZED-IDENTITY-IMPERSONATION"
+  ],
+  "product_files_changed_by_fix_commit": [
+    {
+      "path": "zoran_v2/trace_and_close.py",
+      "git_blob_sha256": "D06D1F1ECB6CD4F86C328325447A37F3D6E4A3F764610714ACBBD6B08B947052",
+      "git_blob_bytes": 29102
+    },
+    {
+      "path": "tests/test_trace_and_close.py",
+      "git_blob_sha256": "6DF36FD189F55590ECDF19F41DED3D991F53148F620F775814094991B3F5F130",
+      "git_blob_bytes": 34831
+    },
+    {
+      "path": "EXECUTION_RESULT_SCHEMA.yaml",
+      "git_blob_sha256": "CE3CE4BCAB0DA087958FCF8AE44407A26BE9505DD9EE09C0BE729C9F90CF0EAD",
+      "git_blob_bytes": 1873
+    },
+    {
+      "path": "HUMAN_DECISION_SCHEMA.yaml",
+      "git_blob_sha256": "DEA9A8833ECC2714B3B9B9C026E24ADEDDDBEA16AF20E47450C3A303918D10C2",
+      "git_blob_bytes": 1367
+    }
+  ],
+  "local_tests_replayed_by_codex_session_a": [
+    {
+      "command": "python -m pytest tests/test_trace_and_close.py -q",
+      "result": "150 passed in 4.81s"
+    },
+    {
+      "command": "python -m pytest -q -k \"not test_probe_contrat_python\"",
+      "result": "559 passed, 1 deselected in 6.33s"
+    }
+  ],
+  "github_ci": {
+    "pull_request_run_id": 29443258047,
+    "pull_request_run_url": "https://github.com/institutia2025-ctrl/zoran-v2/actions/runs/29443258047",
+    "pull_request_run_head_sha": "8e61f6b9de27543e484b12d633077dba00b3e271",
+    "pull_request_run_conclusion": "success",
+    "pull_request_run_tests_log": "560 passed in 4.87s",
+    "aggregate_pr_checks_visible": "8/8 SUCCESS across pull_request and push runs",
+    "artifact_observation": "GitHub run artifact list contains only gitleaks-results.sarif; this bundle supplies the missing certification evidence in repository history."
+  },
+  "product_pr_metadata_issue_detected": {
+    "before_update_title_sha": "22a8be2",
+    "before_update_body_sha": "22a8be2722d4ebdc1ad64c60b811b8c756a35634",
+    "before_update_test_count": "453 suite",
+    "action_required": "Update PR #38 metadata to reference 8e61f6b9 and this bundle without changing product head."
+  },
+  "mutation_scope": "DOCS_ONLY_BUNDLE_BRANCH",
+  "product_mutation": false,
+  "merge_performed": false,
+  "scores": {
+    "C_LOCAL": "PENDING_GRID",
+    "C_GLOBAL": "PENDING_GRID",
+    "C_FALSIFICATION": "PENDING_GRID",
+    "C_EPISTEMIC": "PENDING_GRID"
+  },
+  "vetoes": [],
+  "known_blind_spots": [
+    "This bundle is a proof package, not a replacement for ChatGPT GLOBAL_COHERENCE.",
+    "Working-tree SHA256 values can differ from Git blob SHA256 on Windows line-ending checkout; Git blob SHA256 values are canonical for remote reproducibility."
+  ],
+  "final_status": "PROOF_BUNDLE_READY_FOR_CHATGPT_REAUDIT"
+}

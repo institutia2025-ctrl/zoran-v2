@@ -1,0 +1,16 @@
+{
+  "id": "ZORAN_WRENCH_PR38_ENGINE11_8E61F6B9_CODEX_SESSION_A_BUNDLE",
+  "meta_id": "META_PR38_ENGINE11_REAUDIT_BUNDLE_8E61F6B9",
+  "guard_ids": [
+    "CODEX_SESSION_A_PROOF_BUNDLE_V1",
+    "META_PROTOCOL_V1_EVIDENCE_BUNDLE",
+    "MVPP_SHA_BOUND_PROOF",
+    "DOCS_ONLY_NO_PRODUCT_CHANGE",
+    "NO_MERGE_AUTHORITY"
+  ],
+  "timestamp_created": "2026-07-16T08:58:09+02:00",
+  "owner": "CODEX_SESSION_A",
+  "purpose": "Bundle probatoire durable pour le reaudit ENGINE-11 PR #38 au SHA exact 8e61f6b9de27543e484b12d633077dba00b3e271.",
+  "product_mutation": "FORBIDDEN",
+  "merge_authority": "FRED_ONLY"
+}
