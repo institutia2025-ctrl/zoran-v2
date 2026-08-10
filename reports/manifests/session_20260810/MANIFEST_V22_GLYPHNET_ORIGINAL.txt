@@ -1,0 +1,15 @@
+# MANIFEST SHA-256 — Session ZORAN 2026-08-10 — v22 (MOTEUR DE SOUVERAINETE GLYPHNET)
+# Auteur : Frederic Tabary (ORCID 0009-0004-5562-7385) — Institut IA Inc.
+# Genere (UTC) : 2026-08-10T07:18:10Z
+# Gate : mode souverain arme UNIQUEMENT si LLM local (sinon refus mecanique + clair standard).
+# Batterie anti-regression au scellement : 4 fichiers, TOUS VERTS (aucune regression).
+# NB : v22 ici = moteur souverainete (ligne de session). Le candidat V3 ALL_IN_ONE f3c94ac...
+# n'a jamais ete recu et reste HORS manifeste jusqu'a franchissement de la porte.
+#
+914222f178b819bbac0e6cbc125edccb813d42f4748de449b85b981931dae036  moteur_souverainete.py
+6e5186bb75e091da63186d9c5697d6ba5293e9cbdfec14a896504095dc509e11  test_falsificateur_souverainete.py
+
+# IMPORTANT — HISTORIQUE UNIQUEMENT :
+# les empreintes ci-dessus décrivent la version originale reçue, pas le candidat v1.1
+# présent dans zoran_v3/glyphnet/. Aucun nouveau numéro de manifeste de session n'est
+# émis par cette branche avant contre-audit externe du nouveau tuple.
