@@ -4,8 +4,9 @@
   "authority": "FRED",
   "canonical_plan_object": "ZMOS-ZORAN-FINAL-CONSTRUCTION-PLAN-V1",
   "canonical_plan_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
+  "persistent_memory_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
   "last_update": "2026-08-21T13:10:00+02:00",
-  "state": "PLAN_LOCKED_EXECUTION_STARTED",
+  "state": "CANON_LOCKED_PHASE_1_ACTIVE",
   "global_construction_percent": 62,
   "remaining_percent": 38,
   "uncertainty_points": 6,
@@ -16,14 +17,19 @@
   },
   "current_phase": 1,
   "current_phase_name": "BGE_M3_AND_CORPUS_INDEX_PREPARATION",
-  "completed_gates": [],
-  "active_gates": [
+  "last_proved_delta": "Canonical plan persisted, ZMOS memory object created, persistent tracker created, AGENTS governance rebound from legacy 00→11 to locked K3/ZMOS plan.",
+  "completed_gates": [
     "LOCK_CANONICAL_PLAN",
-    "PERSIST_TO_ZMOS_MEMORY",
-    "ESTABLISH_PER_CHAT_360_TRACKING"
+    "PERSIST_CANON_AS_ZMOS_MEMORY_OBJECT",
+    "ESTABLISH_PER_CHAT_360_TRACKING",
+    "BIND_AGENT_GOVERNANCE_TO_CANON"
+  ],
+  "active_gates": [
+    "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX"
   ],
   "next_build_gate": "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX",
   "blocking_unknowns": [
+    "LIVE_ZMOS_DATABASE_INGESTION_OF_CANON_OBJECT_NON_MESURE_FROM_THIS_ENVIRONMENT",
     "EXACT_SHA_OF_FINAL_BGE_M3_RUNTIME_NOT_YET_LOCKED",
     "EXACT_CORPUS_INDEX_SHA_NOT_YET_LOCKED",
     "AMYGDALA_EXECUTABLE_SOURCE_CURRENT_LOCATION_NON_MESURE",
@@ -40,6 +46,14 @@
     "NO_ARCHITECTURE_CHANGE_WITHOUT_FRED_GO",
     "EVERY_CHAT_STARTS_AND_ENDS_WITH_360_AUDIT"
   ],
+  "evidence": {
+    "canon_commit": "aacb782f06589bf6e4e66a6580738ad90fc457f0",
+    "zmos_memory_commit": "53afbba6e87e3aa0c0f0db12782021df3e77ae61",
+    "agent_governance_commit": "c8ae60c41f465ba23d27c904f524c721eed8c96a",
+    "base_branch": "audit/frame-algebra-k3-v1",
+    "base_sha": "636f70356083697b665f2af2fde6a46abd7a8633",
+    "write_scope": "documentation_and_persistent_memory_only_no_runtime_code_changed"
+  },
   "chat_protocol": {
     "start": {
       "required_reads": [
@@ -75,6 +89,13 @@
       "result": "PASS",
       "construction_percent": 62,
       "note": "Plan K3/ZMOS/BGE-M3/ZTRACE/NLP.js/semantic-decision/verbalizer/voice/internet/UI/amygdala locked as sole construction path."
+    },
+    {
+      "timestamp": "2026-08-21T13:10:00+02:00",
+      "event": "MEMORY_AND_GOVERNANCE_BINDING_360_AUDIT",
+      "result": "PASS_WITH_ONE_NON_MESURE",
+      "construction_percent": 62,
+      "note": "Persistent repository memory is written and agents are bound to it. Live local ZMOS DB ingestion cannot be independently executed from this environment and remains NON_MESURE. No construction percentage increase claimed."
     }
   ]
 }
