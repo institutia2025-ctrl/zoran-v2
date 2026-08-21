@@ -1,0 +1,117 @@
+{
+  "spec_version": "ZORAN-ZMOS-CANON-MEMORY-V1",
+  "object_id": "ZMOS-ZORAN-FINAL-CONSTRUCTION-PLAN-V1",
+  "status": "ACTIVE_LOCKED",
+  "authority": "FRED",
+  "created_at": "2026-08-21T13:10:00+02:00",
+  "canonical_branch": "codex/zoran-final-canon-v1",
+  "canonical_markdown": "ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
+  "canonical_markdown_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
+  "memory_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
+  "goal": {
+    "name": "ZORAN_FINAL",
+    "deterministic_decision": "100_PERCENT_REQUIRED",
+    "offline": "understand_and_answer_simple_sentences_from_local_corpus",
+    "online": "acquire_external_facts_then_govern_before_decision",
+    "speech": "local_STT_and_TTS_without_semantic_authority",
+    "llm": "optional_verbalizer_only",
+    "forbidden": [
+      "LLM_DECIDES_FACT",
+      "LLM_DECIDES_FRAME",
+      "LLM_DECIDES_RELATION",
+      "LLM_DECIDES_CONTRADICTION",
+      "LLM_DECIDES_ACTION",
+      "LLM_DECIDES_REFUSAL",
+      "LLM_DECIDES_CERTAINTY",
+      "LEGACY_00_11_CHAIN_AS_CORE",
+      "ALTERNATIVE_ARCHITECTURE_WITHOUT_FRED_GO"
+    ]
+  },
+  "canonical_pipeline": [
+    "QUESTION_RAW",
+    "DETERMINISTIC_NORMALIZATION",
+    "NLP_JS",
+    "ZTRACE",
+    "BGE_M3_LOCAL_RETRIEVAL_ONLY",
+    "LOCAL_CORPUS_AND_ZMOS_INDEX",
+    "OBJECTS_FACTS_RELATIONS_PROVENANCE",
+    "FRAME_INSTANTIATION",
+    "K3_V1_1",
+    "MEASURED_GAUGE_ONLY",
+    "LOCAL_AND_GENERAL_MULTIFRAME_COHERENCE",
+    "CONTRADICTION_TEMPORALITY_CAUSALITY",
+    "COMPASS_CHOICE",
+    "MPCR_BOUNDED_FUTURE",
+    "SEMANTIC_DECISION_SEALED",
+    "AMYGDALA_VETO_FREEZE_ROLLBACK",
+    "DETERMINISTIC_VERBALIZER",
+    "TEXT_AND_TTS",
+    "ZORAN_UI",
+    "ZMOS_PERSISTENCE"
+  ],
+  "internet_pipeline": [
+    "DETECT_EXTERNAL_DATA_NEED",
+    "SEARCH_ACQUIRE",
+    "SOURCE_URL_DATE_HASH",
+    "EXTRACT",
+    "CANDIDATE_FACT",
+    "PROVENANCE_AND_CONTRADICTION",
+    "K3",
+    "ZMOS",
+    "SAME_DETERMINISTIC_CORE"
+  ],
+  "construction_baseline": {
+    "global_percent": 62,
+    "remaining_percent": 38,
+    "uncertainty_points": 6,
+    "estimated_chats_central": 10,
+    "estimated_chats_min": 8,
+    "estimated_chats_max": 12,
+    "baseline_date": "2026-08-21"
+  },
+  "build_order_locked": [
+    "BGE_M3",
+    "CORPUS_INDEX",
+    "NLP_JS_ZTRACE",
+    "ZMOS",
+    "FRAMES",
+    "K3",
+    "MULTIFRAME_COHERENCE",
+    "SEMANTIC_DECISION",
+    "DETERMINISTIC_VERBALIZER",
+    "VOICE",
+    "INTERNET",
+    "UI",
+    "AMYGDALA",
+    "E2E_FINAL_TEST"
+  ],
+  "memory_protocol": {
+    "chat_context_is": "CACHE_NOT_AUTHORITY",
+    "persistent_authority_is": "THIS_ZMOS_OBJECT_PLUS_CANON_MD_PLUS_TRACKER",
+    "chat_start": [
+      "READ_CANON_MD",
+      "READ_THIS_ZMOS_OBJECT",
+      "READ_BUILD_TRACKER",
+      "RUN_360_AUDIT",
+      "IDENTIFY_CURRENT_LOCK",
+      "REFUSE_ARCHITECTURE_DRIFT"
+    ],
+    "chat_end": [
+      "RECORD_REAL_DELTA",
+      "UPDATE_PERCENT_ONLY_WITH_EVIDENCE",
+      "RECORD_PASS_FAIL_NON_MESURE",
+      "RECORD_NEXT_LOCK",
+      "RECORD_REPO_BRANCH_SHA_ARTIFACTS_TESTS",
+      "RECORD_UNKNOWNS",
+      "RUN_FINAL_360_AUDIT",
+      "KEEP_PLAN_UNCHANGED"
+    ]
+  },
+  "s_rule": {
+    "scientific_formula": "S=(beta*delta_phi)/(1+T+sigma)",
+    "status": "NON_MESURE_UNTIL_PROXIES_CALIBRATED",
+    "architecture_scores": "S_OBJECTIF_0_100_SELECTION_PROXY_ONLY"
+  },
+  "terminal_condition": "NO_HOLE_NO_PROBABILISTIC_DECISION_ALL_REQUIRED_GATES_PROVED",
+  "supersession_policy": "CANNOT_BE_SUPERSEDED_WITHOUT_EXPLICIT_FRED_GO"
+}
