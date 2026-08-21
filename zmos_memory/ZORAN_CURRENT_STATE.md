@@ -1,33 +1,34 @@
 # ZORAN — ÉTAT COURANT PERSISTANT
 
-**Horodatage autoritaire : 2026-08-21T13:47:00+02:00**  
+**Horodatage autoritaire : 2026-08-21T14:04:00+02:00**  
 **Autorité : Fred**  
 **Plan unique : `../ZORAN_FINAL_CONSTRUCTION_CANON_V1.md`**  
 **Objet ZMOS : `ZORAN_FINAL_PLAN_V1.zmos.json`**  
 **Tracker : `ZORAN_BUILD_TRACKER_V1.json`**  
 **Registre briques : `ZORAN_COMPONENT_REGISTRY_V1.json`**  
 **Pause : `ZORAN_PAUSE_BEFORE_CLAUDE_DELTA_20260821.md`**  
-**Dernier audit 360° : `../reports/ZORAN_CLAUDE_DELTA_360_AUDIT_20260821.md`**
+**Dernier audit 360° : `../reports/ZORAN_CLAUDE2_DELTA_360_AUDIT_20260821.md`**
 
 ## État pour reprise
 
 - Construction canonique promue : **62 %**
-- Construction observée après delta Claude + ZMOS : **~69 % ±5**
-- Delta d'observation : **+7 points**
+- Construction observée après audits Claude + ZMOS : **~69 % ±5**
+- Delta d'observation total depuis le verrouillage : **+7 points**
+- Delta supplémentaire Claude 2 : **+0 point promouvable**
 - Delta de code pendant ce chat : **+0 point**
 - Plan structurel modifié : **NON**
 - Runtime modifié : **NON**
-- Verdict : `PASS_DELTA_AUDIT_WITH_CRITICAL_K3_IDENTITY_GATE`
+- Verdict : `PASS_CLAUDE2_DELTA_WITH_NO_ARCHITECTURE_CHANGE_AND_BGE_DEPLOY_CLAIM_NON_MESURE`
 
-## Conclusion Claude vs audit
+## Conclusion Claude 1 + Claude 2 vs audit
 
-**Chemin retenu = MIX.**
+**Chemin retenu = MIX sélectif, architecture canonique inchangée.**
 
-À conserver de Claude : fraîcheur GitHub, K3 candidat 12/12, ZMOS direct très avancé, couture 05B→06 existante, piège réel du connector gate UI, contrainte Python <3.14 du pipeline historique.
+À conserver de Claude : fraîcheur GitHub, K3 candidat 12/12, ZMOS direct très avancé, couture 05B→06 existante, piège réel du connector gate UI, contrainte Python <3.14 du pipeline historique, confirmation Amygdala != GlyphNet et confirmation UI de référence.
 
-À rejeter : `GLYPHNET = Amygdala`, 00→11 comme route produit, Python 3.13 comme premier verrou du Zoran final, score 90 % comme achèvement produit, « seulement quatre trous », garantie de fin en quatre sessions.
+À rejeter / ne pas promouvoir : 00→11 comme route produit, Python 3.13 comme premier verrou du Zoran final, score 90 % comme achèvement produit, garantie de fin en quatre sessions, `GLYPHNET = Amygdala`, et claim `71993b2 BGE-M3 prêt` tant que repo/branche/SHA/tests ne sont pas reliés dans l'espace GitHub accessible.
 
-## Verrou prioritaire découvert
+## Verrou prioritaire
 
 `K3_CANONICAL_IDENTITY_RECONCILIATION`
 
@@ -45,7 +46,7 @@ Avant toute greffe fonctionnelle, il faut déterminer l'identité réellement ex
 
 BGE-M3 reste retrieval uniquement. LLM reasoning/decision reste zéro. 00→11 reste historique/donneur uniquement.
 
-## États importants retrouvés
+## États importants
 
 ### NLP.js
 
@@ -71,18 +72,24 @@ Le chemin local borné Wikipédia FR / Crossref / Zenodo est déjà avancé. Hos
 
 ### UI
 
-Le connector gate v169 refuse localhost, `.local`, IP, HTTP et exige HTTPS + double certification. Le runtime local RC2 dispose néanmoins d'un raccord UI interne documenté. La jonction finale doit préserver le local sans réactiver l'ancien cœur.
+La référence canonique reste `Zoran-IA-Mimetique/ZORAN-UI-27-07-2026@721df5c21a6598c66dc3fb6b958e4c0171be0323`. Le connector gate v169 refuse localhost, `.local`, IP, HTTP et exige HTTPS + double certification. La jonction finale doit préserver le local sans réactiver l'ancien cœur.
 
 ### Amygdala
 
-**Amygdala ≠ GlyphNet.** Amygdala V10 est historiquement prouvée mais source courante / raccord / purge réelle restent NON_MESURÉS. GlyphNet est périphérique et non décisionnel.
+**Amygdala ≠ GlyphNet.** Son rôle canonique est bien : gardien après décision/cohérence et avant verbalisation, avec veto / freeze / rollback / refus. La source exécutable courante reste `NON_MESURÉE`. Dire « Amygdala trouvée » signifie ici que son contrat/rôle est retrouvé dans le canon, pas qu'un programme exécutable a été localisé.
 
-## Chemin proposé, en attente de reprise
+L'effacement/oubli RGPD / AI Act n'est pas écrit dans le canon actuel. Ne pas l'ajouter sans GO explicite de Fred. La purge réelle reste NON_MESURÉE.
+
+### BGE-M3
+
+La phase reste active après le pré-gate K3. Claude 2 rapporte un déployé `71993b2` « BGE-M3 prêt », mais ce SHA n'est pas résolu dans les dépôts GitHub actuellement accessibles à cet audit. Statut : `NON_MESURE_FROM_CURRENT_GITHUB_ACCESS`. Aucun gain de pourcentage n'est promu sur ce claim seul.
+
+## Chemin de reprise
 
 P0 réconcilier l'identité K3 → P1 geler runtime courant → P2 BGE-M3/corpus/index → P3 ZMOS canonique sans 00→11 → P4 sémantique/scellement → P5 UI locale + voix → P6 Internet hosted E2E → P7 Amygdala → P8 E2E final.
 
-Estimation révisée candidate : **7 chats centraux, 6–9**, non encore gravée comme nouvelle architecture.
+Estimation candidate : **7 chats centraux, 6–9**, sans promotion d'une nouvelle architecture.
 
 ## Reprise obligatoire
 
-Lire : canon → objet ZMOS → tracker → registre → ce CURRENT_STATE → rapport delta Claude. Ne coder qu'après validation du verrou K3 et sans dérive du plan.
+Lire : canon → objet ZMOS → tracker → registre → ce CURRENT_STATE → derniers rapports 360°. Ne coder qu'après validation du verrou K3 et sans dérive du plan.
