@@ -1,0 +1,80 @@
+{
+  "spec_version": "ZORAN-BUILD-TRACKER-V1",
+  "tracker_id": "ZORAN-FINAL-BUILD-TRACKER-V1",
+  "authority": "FRED",
+  "canonical_plan_object": "ZMOS-ZORAN-FINAL-CONSTRUCTION-PLAN-V1",
+  "canonical_plan_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
+  "last_update": "2026-08-21T13:10:00+02:00",
+  "state": "PLAN_LOCKED_EXECUTION_STARTED",
+  "global_construction_percent": 62,
+  "remaining_percent": 38,
+  "uncertainty_points": 6,
+  "chat_estimate": {
+    "central": 10,
+    "min": 8,
+    "max": 12
+  },
+  "current_phase": 1,
+  "current_phase_name": "BGE_M3_AND_CORPUS_INDEX_PREPARATION",
+  "completed_gates": [],
+  "active_gates": [
+    "LOCK_CANONICAL_PLAN",
+    "PERSIST_TO_ZMOS_MEMORY",
+    "ESTABLISH_PER_CHAT_360_TRACKING"
+  ],
+  "next_build_gate": "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX",
+  "blocking_unknowns": [
+    "EXACT_SHA_OF_FINAL_BGE_M3_RUNTIME_NOT_YET_LOCKED",
+    "EXACT_CORPUS_INDEX_SHA_NOT_YET_LOCKED",
+    "AMYGDALA_EXECUTABLE_SOURCE_CURRENT_LOCATION_NON_MESURE",
+    "UNIFIED_E2E_SHA_NON_MESURE"
+  ],
+  "non_negotiable_invariants": [
+    "K3_IS_LOGICAL_CORE",
+    "BGE_M3_IS_RETRIEVAL_ONLY",
+    "ZMOS_IS_PERSISTENT_MEMORY_AUTHORITY",
+    "SEMANTIC_DECISION_PRECEDES_VERBALIZATION",
+    "LLM_REASONING_EQUALS_ZERO",
+    "LEGACY_00_11_CHAIN_NOT_CORE",
+    "NO_PERCENT_INCREASE_WITHOUT_EVIDENCE",
+    "NO_ARCHITECTURE_CHANGE_WITHOUT_FRED_GO",
+    "EVERY_CHAT_STARTS_AND_ENDS_WITH_360_AUDIT"
+  ],
+  "chat_protocol": {
+    "start": {
+      "required_reads": [
+        "ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
+        "zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
+        "zmos_memory/ZORAN_BUILD_TRACKER_V1.json"
+      ],
+      "required_output": [
+        "CURRENT_PERCENT",
+        "CURRENT_PHASE",
+        "LAST_PROVED_DELTA",
+        "CURRENT_LOCK",
+        "MISSING_OR_NON_MESURE",
+        "NEXT_ACTION"
+      ]
+    },
+    "end": {
+      "required_update": [
+        "DELTA",
+        "PERCENT",
+        "PASS_FAIL_NON_MESURE",
+        "REPO_BRANCH_SHA",
+        "TESTS_ARTIFACTS",
+        "NEXT_LOCK",
+        "360_AUDIT_RESULT"
+      ]
+    }
+  },
+  "history": [
+    {
+      "timestamp": "2026-08-21T13:10:00+02:00",
+      "event": "CANONICAL_FINAL_PLAN_LOCKED",
+      "result": "PASS",
+      "construction_percent": 62,
+      "note": "Plan K3/ZMOS/BGE-M3/ZTRACE/NLP.js/semantic-decision/verbalizer/voice/internet/UI/amygdala locked as sole construction path."
+    }
+  ]
+}
