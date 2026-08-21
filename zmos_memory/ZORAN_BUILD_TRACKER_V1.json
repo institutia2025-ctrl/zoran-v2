@@ -6,6 +6,7 @@
   "canonical_plan_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
   "persistent_memory_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
   "component_registry_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
+  "current_state_md_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_CURRENT_STATE.md",
   "last_update": "2026-08-21T13:31:00+02:00",
   "state": "CHAT_01_CARTOGRAPHY_PASS_PHASE_1_BGE_ACTIVE",
   "global_construction_percent": 62,
@@ -65,6 +66,7 @@
     "previous_tracker_commit": "7fe8035b499529978b7d7bc3ad900d4d12a82f64",
     "component_registry_commit": "98fe9bba0ea5e48942d6dca6ff4602bc843c72b9",
     "chat_01_audit_commit": "8a877ebc8ded9b70b1ee3d05bffcaf94146872a7",
+    "current_state_md_commit": "c366ec2aee68091e1362c4fde5ee18ef1b2bc511",
     "base_branch": "audit/frame-algebra-k3-v1",
     "base_sha": "636f70356083697b665f2af2fde6a46abd7a8633",
     "k3_blob_sha": "ba851c71d7e8ac1ec8c918d291ab128fc9e2fba0",
@@ -79,6 +81,7 @@
         "zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
         "zmos_memory/ZORAN_BUILD_TRACKER_V1.json",
         "zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
+        "zmos_memory/ZORAN_CURRENT_STATE.md",
         "latest reports/ZORAN_CHAT_*_360_AUDIT_*.md"
       ],
       "required_output": [
@@ -99,7 +102,8 @@
         "REPO_BRANCH_SHA",
         "TESTS_ARTIFACTS",
         "NEXT_LOCK",
-        "360_AUDIT_RESULT"
+        "360_AUDIT_RESULT",
+        "UPDATE_ZORAN_CURRENT_STATE_MD"
       ]
     }
   },
@@ -134,6 +138,7 @@
       "delta_percent": 0,
       "report": "reports/ZORAN_CHAT_01_360_AUDIT_20260821.md",
       "registry": "zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
+      "current_state_md": "zmos_memory/ZORAN_CURRENT_STATE.md",
       "note": "Sources advanced/relevant pinned; false donors rejected. Runtime BGE-M3 and corpus/index remain the active functional lock."
     }
   ]
