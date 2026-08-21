@@ -7,45 +7,60 @@
   "persistent_memory_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
   "component_registry_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
   "current_state_md_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_CURRENT_STATE.md",
-  "last_update": "2026-08-21T13:31:00+02:00",
-  "state": "CHAT_01_CARTOGRAPHY_PASS_PHASE_1_BGE_ACTIVE",
-  "global_construction_percent": 62,
-  "remaining_percent": 38,
-  "delta_percent_this_chat": 0,
-  "uncertainty_points": 6,
-  "chat_estimate": {
+  "last_update": "2026-08-21T13:47:00+02:00",
+  "state": "CLAUDE_DELTA_AUDITED_PAUSED_BEFORE_RUNTIME_GREFFE",
+  "global_construction_percent_canonical_promoted": 62,
+  "observed_construction_percent_after_audit": 69,
+  "observed_uncertainty_points": 5,
+  "delta_percent_observed_this_chat": 7,
+  "delta_product_code_this_chat": 0,
+  "delta_kind": "EVIDENCE_RECLASSIFICATION_NOT_NEW_CODE",
+  "remaining_percent_observed": 31,
+  "chat_estimate_canonical": {
     "total_central": 10,
-    "total_min": 8,
-    "total_max": 12,
-    "completed": 1,
-    "remaining_central": 9,
-    "remaining_min": 7,
-    "remaining_max": 11
+    "min": 8,
+    "max": 12
   },
-  "current_phase": 1,
-  "current_phase_name": "BGE_M3_LOCAL_RUNTIME_AND_CORPUS_INDEX",
-  "last_proved_delta": "Chat 01 exact component cartography completed. K3 source, direct ZMOS repository, governed-memory donors, UI frozen reference and BGE-M3 official family were pinned. Historical generic embeddings/datasets and unrelated trace repo were rejected as final runtime sources. No functional percentage increase claimed.",
+  "chat_estimate_candidate_after_delta_audit": {
+    "central": 7,
+    "min": 6,
+    "max": 9,
+    "status": "CANDIDATE_NOT_ARCHITECTURE_PROMOTION"
+  },
+  "current_phase": 0,
+  "current_phase_name": "K3_CANONICAL_IDENTITY_RECONCILIATION_PRE_GATE",
+  "last_proved_delta": "Claude GitHub findings were cross-audited against direct GitHub files and latest ZMOS/File Library state. MIX verdict: retain locked K3/ZMOS architecture and use Claude's GitHub findings as donor/integrity evidence. Amygdala is not GlyphNet. Old 00→11 bridge and Python<3.14 constraint are historical-path facts, not the first final-product gate.",
   "completed_gates": [
     "LOCK_CANONICAL_PLAN",
     "PERSIST_CANON_AS_ZMOS_MEMORY_OBJECT",
     "ESTABLISH_PER_CHAT_360_TRACKING",
     "BIND_AGENT_GOVERNANCE_TO_CANON",
-    "CHAT_01_COMPONENT_CARTOGRAPHY"
+    "CHAT_01_COMPONENT_CARTOGRAPHY",
+    "CLAUDE_DELTA_360_AUDIT"
   ],
   "active_gates": [
-    "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX"
+    "K3_CANONICAL_IDENTITY_RECONCILIATION"
   ],
-  "next_build_gate": "LOCK_BGE_M3_MODEL_REVISION_RUNTIME_AND_CORPUS_INDEX_SHA",
+  "next_build_gate_after_pre_gate": "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX",
+  "critical_findings": [
+    "THREE_DISTINCT_K3_IDENTITIES_REQUIRE_AUTHORITY_RECEIPT",
+    "AMYGDALA_NOT_GLYPHNET",
+    "LEGACY_00_11_BRIDGE_EXISTS_BUT_CURRENT_ZMOS_REGISTRY_FORBIDS_IMPORT_EXECUTION_DESIGN",
+    "UI_V169_CONNECTOR_GATE_REJECTS_LOCALHOST_IP_HTTP",
+    "SEMANTIC_DECISION_05B_SEAM_EXISTS_BUT_DEFAULT_06_MAIN_REMAINS_LEGACY_AND_05B_IS_BOUNDED",
+    "CURRENT_NLPJS_RUNTIME_AND_LOCAL_INTERNET_ARE_MORE_ADVANCED_THAN_INITIAL_GITHUB_ONLY_CARTOGRAPHY",
+    "BGE_M3_CORPUS_INDEX_STILL_REQUIRED_FOR_FINAL_OFFLINE_KNOWLEDGE_GOAL",
+    "VOICE_AND_HOSTED_E2E_REMAIN_OUTSIDE_CLAUDE_FOUR_HOLES"
+  ],
   "blocking_unknowns": [
+    "CANONICAL_K3_AUTHORITY_RECEIPT_AND_SINGLE_IDENTITY",
     "LIVE_ZMOS_DATABASE_INGESTION_OF_CANON_OBJECT_NON_MESURE_FROM_THIS_ENVIRONMENT",
-    "BGE_M3_EXACT_MODEL_REVISION_NON_MESURE",
     "BGE_M3_ZORAN_RUNTIME_SHA_NON_MESURE",
-    "CORPUS_WIKIPEDIA_ZORAN_EXACT_PATH_AND_SHA_NON_MESURE",
-    "SEMANTIC_INDEX_SHA_NON_MESURE",
-    "NLP_JS_CURRENT_RUNTIME_SOURCE_NON_MESURE",
-    "ZTRACE_CURRENT_RUNTIME_SOURCE_NON_MESURE",
-    "SEMANTIC_DECISION_R5_REMOTE_SOURCE_NON_MESURE",
-    "AMYGDALA_EXECUTABLE_SOURCE_CURRENT_LOCATION_NON_MESURE",
+    "CORPUS_WIKIPEDIA_ZORAN_EXACT_CURRENT_PAYLOAD_AND_INDEX_SHA_NON_MESURE",
+    "SEMANTIC_DECISION_FINAL_CURRENT_SOURCE_BINDING_NON_MESURE",
+    "AMYGDALA_EXECUTABLE_CURRENT_SOURCE_AND_REAL_PURGE_NON_MESURE",
+    "HOSTED_AUTHENTICATED_INTERNET_E2E_NON_MESURE",
+    "LOCAL_STT_TTS_FINAL_RUNTIME_NON_MESURE",
     "UNIFIED_E2E_SHA_NON_MESURE"
   ],
   "non_negotiable_invariants": [
@@ -55,6 +70,7 @@
     "SEMANTIC_DECISION_PRECEDES_VERBALIZATION",
     "LLM_REASONING_EQUALS_ZERO",
     "LEGACY_00_11_CHAIN_NOT_CORE",
+    "GLYPHNET_IS_NOT_AMYGDALA",
     "NO_PERCENT_INCREASE_WITHOUT_EVIDENCE",
     "NO_ARCHITECTURE_CHANGE_WITHOUT_FRED_GO",
     "EVERY_CHAT_STARTS_AND_ENDS_WITH_360_AUDIT"
@@ -63,16 +79,16 @@
     "canon_commit": "aacb782f06589bf6e4e66a6580738ad90fc457f0",
     "zmos_memory_commit": "53afbba6e87e3aa0c0f0db12782021df3e77ae61",
     "agent_governance_commit": "c8ae60c41f465ba23d27c904f524c721eed8c96a",
-    "previous_tracker_commit": "7fe8035b499529978b7d7bc3ad900d4d12a82f64",
     "component_registry_commit": "98fe9bba0ea5e48942d6dca6ff4602bc843c72b9",
     "chat_01_audit_commit": "8a877ebc8ded9b70b1ee3d05bffcaf94146872a7",
-    "current_state_md_commit": "c366ec2aee68091e1362c4fde5ee18ef1b2bc511",
-    "base_branch": "audit/frame-algebra-k3-v1",
-    "base_sha": "636f70356083697b665f2af2fde6a46abd7a8633",
-    "k3_blob_sha": "ba851c71d7e8ac1ec8c918d291ab128fc9e2fba0",
+    "pause_commit": "8ad4ab5530875518bb706c829aeeda0c12eb7baa",
+    "claude_delta_report_commit": "97280aaae6c85a927011530c0d580899b148e491",
+    "current_state_commit": "a3bab3a84811a8baa590587b55db2d7bbdc2b199",
+    "k3_github_candidate_head": "636f70356083697b665f2af2fde6a46abd7a8633",
+    "k3_candidate_source_sha256_manifest": "67977b6428eb9dcf0c2164a165828dc27217849e199d37e28f4cda858009e97e",
     "zmos_direct_repo_sha": "112ee9439a36130b97176bc71f01cd1b8606a0a3",
     "ui_reference_sha": "721df5c21a6598c66dc3fb6b958e4c0171be0323",
-    "write_scope": "persistent_memory_and_audit_only_no_runtime_code_changed"
+    "write_scope": "AUDIT_AND_PERSISTENT_MEMORY_ONLY_NO_RUNTIME_CODE_CHANGED"
   },
   "chat_protocol": {
     "start": {
@@ -82,10 +98,11 @@
         "zmos_memory/ZORAN_BUILD_TRACKER_V1.json",
         "zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
         "zmos_memory/ZORAN_CURRENT_STATE.md",
-        "latest reports/ZORAN_CHAT_*_360_AUDIT_*.md"
+        "latest reports/ZORAN_*_360_AUDIT_*.md"
       ],
       "required_output": [
-        "CURRENT_PERCENT",
+        "CURRENT_CANONICAL_PERCENT",
+        "CURRENT_OBSERVED_PERCENT",
         "DELTA_PERCENT_FROM_LAST_PROVED_STATE",
         "CURRENT_PHASE",
         "LAST_PROVED_DELTA",
@@ -112,34 +129,25 @@
       "timestamp": "2026-08-21T13:10:00+02:00",
       "event": "CANONICAL_FINAL_PLAN_LOCKED",
       "result": "PASS",
-      "construction_percent": 62,
-      "note": "Plan K3/ZMOS/BGE-M3/ZTRACE/NLP.js/semantic-decision/verbalizer/voice/internet/UI/amygdala locked as sole construction path."
-    },
-    {
-      "timestamp": "2026-08-21T13:10:00+02:00",
-      "event": "MEMORY_AND_GOVERNANCE_BINDING_360_AUDIT",
-      "result": "PASS_WITH_ONE_NON_MESURE",
-      "construction_percent": 62,
-      "note": "Persistent repository memory is written and agents are bound to it. Live local ZMOS DB ingestion cannot be independently executed from this environment and remains NON_MESURE. No construction percentage increase claimed."
-    },
-    {
-      "timestamp": "2026-08-21T13:31:00+02:00",
-      "event": "CHAT_01_START_360_AUDIT",
-      "result": "PASS",
-      "construction_percent": 62,
-      "delta_percent": 0,
-      "note": "Canon, ZMOS plan and tracker re-read before action. No architecture drift detected."
+      "construction_percent": 62
     },
     {
       "timestamp": "2026-08-21T13:31:00+02:00",
       "event": "CHAT_01_COMPONENT_CARTOGRAPHY_COMPLETE",
       "result": "PASS_CARTOGRAPHY",
       "construction_percent": 62,
-      "delta_percent": 0,
-      "report": "reports/ZORAN_CHAT_01_360_AUDIT_20260821.md",
-      "registry": "zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
-      "current_state_md": "zmos_memory/ZORAN_CURRENT_STATE.md",
-      "note": "Sources advanced/relevant pinned; false donors rejected. Runtime BGE-M3 and corpus/index remain the active functional lock."
+      "delta_percent": 0
+    },
+    {
+      "timestamp": "2026-08-21T13:47:00+02:00",
+      "event": "CLAUDE_ANALYSIS_RECEIVED_AND_360_DELTA_AUDITED",
+      "result": "PASS_DELTA_AUDIT_WITH_CRITICAL_K3_IDENTITY_GATE",
+      "canonical_percent": 62,
+      "observed_percent": 69,
+      "observed_delta_percent": 7,
+      "product_code_delta_percent": 0,
+      "report": "reports/ZORAN_CLAUDE_DELTA_360_AUDIT_20260821.md",
+      "note": "MIX path selected as audit verdict; no architecture or runtime promoted."
     }
   ]
 }
