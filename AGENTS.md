@@ -1,8 +1,43 @@
-# ZORAN V2 — Instructions obligatoires pour tout agent
+# ZORAN — Instructions obligatoires pour tout agent
 
-## Lecture préalable obligatoire
+## PRIORITÉ ABSOLUE — PLAN FINAL VERROUILLÉ
 
-Avant toute analyse, modification, audit, review, merge, benchmark ou décision concernant ZORAN V2, l’agent doit relire et intégrer la page canonique suivante :
+Pour la branche `codex/zoran-final-canon-v1`, toute mission Zoran doit d'abord lire et appliquer ces trois autorités persistantes :
+
+1. Plan canonique final :  
+   https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/ZORAN_FINAL_CONSTRUCTION_CANON_V1.md
+2. Objet mémoire ZMOS du plan :  
+   https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json
+3. Tracker persistant de construction :  
+   https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_BUILD_TRACKER_V1.json
+
+Ces trois fichiers priment sur toute ancienne architecture de construction. L'ancienne chaîne ENGINE-00→11 est **historique et donneuse de briques uniquement** ; elle ne constitue plus le pipeline final autorisé. Aucun agent ne doit la réactiver en bloc.
+
+Le pipeline final autorisé est celui du canon : `NLP.js + ZTRACE + BGE-M3 retrieval → corpus/index ZMOS → cadres → K3 → cohérence multicadre → semantic decision → Amygdale/veto → verbaliseur déterministe → texte/voix/UI → ZMOS`.
+
+Aucune architecture alternative, aucun changement d'ordre de construction et aucune décision probabiliste ne sont autorisés sans GO explicite de Fred.
+
+## Mémoire persistante obligatoire
+
+Le contexte conversationnel n'est qu'un cache. La mémoire de construction autoritaire est ZMOS/canon/tracker ci-dessus.
+
+Au début de chaque chat ou mission :
+- relire les trois autorités ;
+- effectuer un audit 360° ;
+- annoncer pourcentage courant, phase, dernier delta prouvé, verrou, NON_MESURÉ et prochaine action.
+
+À la fin de chaque chat ou mission :
+- consigner le delta réel ;
+- mettre à jour le pourcentage uniquement avec preuve ;
+- consigner PASS / FAIL / NON_MESURÉ ;
+- inscrire dépôt / branche / SHA / tests / artefacts ;
+- consigner le verrou suivant ;
+- refaire un audit 360° ;
+- ne jamais modifier le plan silencieusement.
+
+## Lecture scientifique préalable obligatoire
+
+Avant toute analyse, modification, audit, review, merge, benchmark ou décision concernant ZORAN, relire et intégrer la page canonique suivante :
 
 - Notion : https://app.notion.com/p/39ec578e95578124a3bad0d64bab486f
 
@@ -76,7 +111,7 @@ Aucun contre-exemple confirmé ni aucune classe d’erreur canonisée ne peut re
 
 Cette règle s’applique à tous les agents. Avant toute nouvelle décision, chaque agent doit vérifier le registre d’erreurs canonisées et les guards associés. Une erreur déjà apprise mais reproduite constitue une régression systémique et impose au minimum `FIX_REQUIRED`.
 
-Boucle de gouvernance associée (HORS pipeline, non-runtime, non numérotée comme gate) : `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md` (identifiant interne `GOV_COHERENT_EVOLUTION`). Le pipeline de raisonnement reste borné à ENGINE-00→11 ; ENGINE-11 est la porte terminale. La règle de non-récurrence ci-dessus reste autoritaire.
+La boucle de gouvernance historique `specs/CONTRACT_ENGINE_12_COHERENT_EVOLUTION.md` peut rester une référence locale de non-récurrence, mais elle ne redéfinit pas le pipeline final verrouillé ci-dessus.
 
 ## Règles d’exécution
 
@@ -86,8 +121,8 @@ Boucle de gouvernance associée (HORS pipeline, non-runtime, non numérotée com
 - Toute preuve d’un autre SHA est invalide.
 - Les déclarations, commentaires et docstrings ne remplacent pas une preuve runtime.
 - Toute contradiction impose reconstruction ou `FIX_REQUIRED`, jamais une rationalisation.
-- Aucun ajout de gouvernance abstraite sans incident réel démontré pendant la construction des moteurs.
+- Aucun ajout de gouvernance abstraite sans incident réel démontré pendant la construction.
 
 ## Portée
 
-Ce fichier s’applique à tous les sous-répertoires du dépôt et à tous les agents humains ou IA intervenant sur ZORAN V2.
+Ce fichier s’applique à tous les sous-répertoires de cette branche canonique et à tous les agents humains ou IA intervenant sur la finalisation de ZORAN.
