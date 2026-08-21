@@ -5,33 +5,45 @@
   "canonical_plan_object": "ZMOS-ZORAN-FINAL-CONSTRUCTION-PLAN-V1",
   "canonical_plan_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
   "persistent_memory_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
-  "last_update": "2026-08-21T13:10:00+02:00",
-  "state": "CANON_LOCKED_PHASE_1_ACTIVE",
+  "component_registry_url": "https://github.com/institutia2025-ctrl/zoran-v2/blob/codex/zoran-final-canon-v1/zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
+  "last_update": "2026-08-21T13:31:00+02:00",
+  "state": "CHAT_01_CARTOGRAPHY_PASS_PHASE_1_BGE_ACTIVE",
   "global_construction_percent": 62,
   "remaining_percent": 38,
+  "delta_percent_this_chat": 0,
   "uncertainty_points": 6,
   "chat_estimate": {
-    "central": 10,
-    "min": 8,
-    "max": 12
+    "total_central": 10,
+    "total_min": 8,
+    "total_max": 12,
+    "completed": 1,
+    "remaining_central": 9,
+    "remaining_min": 7,
+    "remaining_max": 11
   },
   "current_phase": 1,
-  "current_phase_name": "BGE_M3_AND_CORPUS_INDEX_PREPARATION",
-  "last_proved_delta": "Canonical plan persisted, ZMOS memory object created, persistent tracker created, AGENTS governance rebound from legacy 00→11 to locked K3/ZMOS plan.",
+  "current_phase_name": "BGE_M3_LOCAL_RUNTIME_AND_CORPUS_INDEX",
+  "last_proved_delta": "Chat 01 exact component cartography completed. K3 source, direct ZMOS repository, governed-memory donors, UI frozen reference and BGE-M3 official family were pinned. Historical generic embeddings/datasets and unrelated trace repo were rejected as final runtime sources. No functional percentage increase claimed.",
   "completed_gates": [
     "LOCK_CANONICAL_PLAN",
     "PERSIST_CANON_AS_ZMOS_MEMORY_OBJECT",
     "ESTABLISH_PER_CHAT_360_TRACKING",
-    "BIND_AGENT_GOVERNANCE_TO_CANON"
+    "BIND_AGENT_GOVERNANCE_TO_CANON",
+    "CHAT_01_COMPONENT_CARTOGRAPHY"
   ],
   "active_gates": [
     "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX"
   ],
-  "next_build_gate": "BGE_M3_LOCAL_PERSISTENT_RETRIEVAL_PLUS_INDEX",
+  "next_build_gate": "LOCK_BGE_M3_MODEL_REVISION_RUNTIME_AND_CORPUS_INDEX_SHA",
   "blocking_unknowns": [
     "LIVE_ZMOS_DATABASE_INGESTION_OF_CANON_OBJECT_NON_MESURE_FROM_THIS_ENVIRONMENT",
-    "EXACT_SHA_OF_FINAL_BGE_M3_RUNTIME_NOT_YET_LOCKED",
-    "EXACT_CORPUS_INDEX_SHA_NOT_YET_LOCKED",
+    "BGE_M3_EXACT_MODEL_REVISION_NON_MESURE",
+    "BGE_M3_ZORAN_RUNTIME_SHA_NON_MESURE",
+    "CORPUS_WIKIPEDIA_ZORAN_EXACT_PATH_AND_SHA_NON_MESURE",
+    "SEMANTIC_INDEX_SHA_NON_MESURE",
+    "NLP_JS_CURRENT_RUNTIME_SOURCE_NON_MESURE",
+    "ZTRACE_CURRENT_RUNTIME_SOURCE_NON_MESURE",
+    "SEMANTIC_DECISION_R5_REMOTE_SOURCE_NON_MESURE",
     "AMYGDALA_EXECUTABLE_SOURCE_CURRENT_LOCATION_NON_MESURE",
     "UNIFIED_E2E_SHA_NON_MESURE"
   ],
@@ -50,19 +62,28 @@
     "canon_commit": "aacb782f06589bf6e4e66a6580738ad90fc457f0",
     "zmos_memory_commit": "53afbba6e87e3aa0c0f0db12782021df3e77ae61",
     "agent_governance_commit": "c8ae60c41f465ba23d27c904f524c721eed8c96a",
+    "previous_tracker_commit": "7fe8035b499529978b7d7bc3ad900d4d12a82f64",
+    "component_registry_commit": "98fe9bba0ea5e48942d6dca6ff4602bc843c72b9",
+    "chat_01_audit_commit": "8a877ebc8ded9b70b1ee3d05bffcaf94146872a7",
     "base_branch": "audit/frame-algebra-k3-v1",
     "base_sha": "636f70356083697b665f2af2fde6a46abd7a8633",
-    "write_scope": "documentation_and_persistent_memory_only_no_runtime_code_changed"
+    "k3_blob_sha": "ba851c71d7e8ac1ec8c918d291ab128fc9e2fba0",
+    "zmos_direct_repo_sha": "112ee9439a36130b97176bc71f01cd1b8606a0a3",
+    "ui_reference_sha": "721df5c21a6598c66dc3fb6b958e4c0171be0323",
+    "write_scope": "persistent_memory_and_audit_only_no_runtime_code_changed"
   },
   "chat_protocol": {
     "start": {
       "required_reads": [
         "ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
         "zmos_memory/ZORAN_FINAL_PLAN_V1.zmos.json",
-        "zmos_memory/ZORAN_BUILD_TRACKER_V1.json"
+        "zmos_memory/ZORAN_BUILD_TRACKER_V1.json",
+        "zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
+        "latest reports/ZORAN_CHAT_*_360_AUDIT_*.md"
       ],
       "required_output": [
         "CURRENT_PERCENT",
+        "DELTA_PERCENT_FROM_LAST_PROVED_STATE",
         "CURRENT_PHASE",
         "LAST_PROVED_DELTA",
         "CURRENT_LOCK",
@@ -96,6 +117,24 @@
       "result": "PASS_WITH_ONE_NON_MESURE",
       "construction_percent": 62,
       "note": "Persistent repository memory is written and agents are bound to it. Live local ZMOS DB ingestion cannot be independently executed from this environment and remains NON_MESURE. No construction percentage increase claimed."
+    },
+    {
+      "timestamp": "2026-08-21T13:31:00+02:00",
+      "event": "CHAT_01_START_360_AUDIT",
+      "result": "PASS",
+      "construction_percent": 62,
+      "delta_percent": 0,
+      "note": "Canon, ZMOS plan and tracker re-read before action. No architecture drift detected."
+    },
+    {
+      "timestamp": "2026-08-21T13:31:00+02:00",
+      "event": "CHAT_01_COMPONENT_CARTOGRAPHY_COMPLETE",
+      "result": "PASS_CARTOGRAPHY",
+      "construction_percent": 62,
+      "delta_percent": 0,
+      "report": "reports/ZORAN_CHAT_01_360_AUDIT_20260821.md",
+      "registry": "zmos_memory/ZORAN_COMPONENT_REGISTRY_V1.json",
+      "note": "Sources advanced/relevant pinned; false donors rejected. Runtime BGE-M3 and corpus/index remain the active functional lock."
     }
   ]
 }
