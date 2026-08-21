@@ -1,0 +1,161 @@
+{
+  "spec_version": "ZORAN-COMPONENT-REGISTRY-V1",
+  "registry_id": "ZMOS-ZORAN-FINAL-COMPONENT-REGISTRY-V1",
+  "authority": "FRED",
+  "audited_at": "2026-08-21T13:31:00+02:00",
+  "canonical_plan": "ZORAN_FINAL_CONSTRUCTION_CANON_V1.md",
+  "canonical_branch": "codex/zoran-final-canon-v1",
+  "rule": "ONLY_COMPONENTS_COMPATIBLE_WITH_LOCKED_K3_ZMOS_PLAN_MAY_BE_GREFTED",
+  "components": [
+    {
+      "id": "K3_FRAME_ALGEBRA_V1_1",
+      "role": "LOGICAL_CORE",
+      "s_objectif": 100,
+      "status": "PASS_SOURCE_IDENTIFIED",
+      "repository": "institutia2025-ctrl/zoran-v2",
+      "branch": "audit/frame-algebra-k3-v1",
+      "branch_head_sha": "636f70356083697b665f2af2fde6a46abd7a8633",
+      "path": "experiments/frame_algebra/moteur_algebre_cadres.py",
+      "blob_sha": "ba851c71d7e8ac1ec8c918d291ab128fc9e2fba0",
+      "notes": "Kleene K3 forte; PASS/FAIL/NON_MESURE; NON/ET/OU/IMPLIQUE/DIFFERENCE; no LLM; no causal authority; no action authority."
+    },
+    {
+      "id": "ZMOS_V2_TRANSACTIONAL_CORE",
+      "role": "PERSISTENT_MEMORY_CORE",
+      "s_objectif": 99,
+      "status": "PASS_SOURCE_IDENTIFIED",
+      "repository": "Zoran-IA-Mimetique/zmos-v2-transactional-bench",
+      "branch": "main",
+      "head_sha": "112ee9439a36130b97176bc71f01cd1b8606a0a3",
+      "notes": "More recent direct ZMOS repository than historical copied runtime; contains bridge, transactional/reconstruction proofs and runtime mutation counterproofs. LLM-dependent product-runtime paths are donors/rejected for final core."
+    },
+    {
+      "id": "ZMOS_GOVERNED_MEMORY_V2",
+      "role": "GOVERNED_MEMORY",
+      "s_objectif": 98,
+      "status": "PASS_SOURCE_IDENTIFIED",
+      "repository": "Zoran-IA-Mimetique/zoran-bench-runtime",
+      "branch": "codex/judge-calibration-v1",
+      "base_sha": "8329b91ef91c7b456d60b90fb235cd601ae81eec",
+      "path": "z3/zoran_commercial_full_stack_v1/governed_memory_v2.py",
+      "blob_sha": "55c2ecfc7d1efa375b785ee785f1368b069e269b"
+    },
+    {
+      "id": "ZMOS_ACTIVE_SELECTION_V2",
+      "role": "ACTIVE_MEMORY_SELECTION",
+      "s_objectif": 96,
+      "status": "PASS_SOURCE_IDENTIFIED",
+      "repository": "Zoran-IA-Mimetique/zoran-bench-runtime",
+      "branch": "codex/judge-calibration-v1",
+      "base_sha": "8329b91ef91c7b456d60b90fb235cd601ae81eec",
+      "path": "z3/fable5_cinematic_coherence_poc_v1/zmos_selection_v2.py",
+      "blob_sha": "4dafeab40ed3d29c43ade3a37fc03df155b90710"
+    },
+    {
+      "id": "M7_RECALL_AUTHORITY_V1",
+      "role": "MEMORY_RECALL_AUTHORIZATION",
+      "s_objectif": 96,
+      "status": "PASS_SOURCE_IDENTIFIED",
+      "repository": "Zoran-IA-Mimetique/zoran-bench-runtime",
+      "branch": "codex/judge-calibration-v1",
+      "base_sha": "8329b91ef91c7b456d60b90fb235cd601ae81eec",
+      "path": "z3/zoran_product_runtime/m7_recall_decision_v1.py",
+      "blob_sha": "9ce87f19735927d420b8e30c2fa640093112aa0c"
+    },
+    {
+      "id": "SEMANTIC_DECISION_REMOTE_CANDIDATE",
+      "role": "PRE_VERBALIZATION_DECISION",
+      "s_objectif": 99,
+      "status": "QUARANTINE_REMOTE_IS_OLDER_THAN_REPORTED_R5",
+      "repository": "institutia2025-ctrl/zoran-v2",
+      "branch": "codex/audit-semantic-decision-v1",
+      "path": "zoran_v2/semantic_decision.py",
+      "blob_sha": "ccab9602e74f480ec79fc56c3b13b05cc7bef927",
+      "reported_newer_local_sha": "111cec9f306c2256b705f79a5ecdd310d3df10f5",
+      "reported_newer_local_sha_remote_status": "NOT_FOUND",
+      "notes": "Do not promote remote candidate as final semantic decision; recover/re-audit R5 source or rebuild only from locked semantic policy if truly lost."
+    },
+    {
+      "id": "UI_FROZEN_V169",
+      "role": "UI_REFERENCE",
+      "s_objectif": 97,
+      "status": "PASS_FROZEN_REFERENCE",
+      "repository": "Zoran-IA-Mimetique/ZORAN-UI-27-07-2026",
+      "branch": "source/exact-v169",
+      "sha": "721df5c21a6598c66dc3fb6b958e4c0171be0323",
+      "tree_sha": "046932b0f2d6a94ccc7c612d0c9b59cdfa399f23",
+      "notes": "Visual/reference donor only; current LLM chat backend is not core authority."
+    },
+    {
+      "id": "BGE_M3_OFFICIAL",
+      "role": "LOCAL_SEMANTIC_RETRIEVAL_ONLY",
+      "s_objectif": 94,
+      "status": "APPROVED_MODEL_FAMILY_RUNTIME_NOT_YET_LOCKED",
+      "external_model": "BAAI/bge-m3",
+      "license": "MIT",
+      "dimension": 1024,
+      "max_sequence_length": 8192,
+      "functions": ["DENSE", "SPARSE", "MULTI_VECTOR"],
+      "exact_model_revision": "NON_MESURE",
+      "project_runtime_sha": "NON_MESURE",
+      "project_index_sha": "NON_MESURE",
+      "notes": "BGE-M3 returns candidates/scores only. It never decides facts, frames, contradiction, action or certainty."
+    },
+    {
+      "id": "LEGACY_ZORAN_EMBEDDINGS_REPO",
+      "role": "HISTORICAL_EMBEDDINGS_DOCUMENTATION",
+      "s_objectif": 35,
+      "status": "REJECT_AS_RUNTIME",
+      "repository": "Zoran-IA-Mimetique/zoran-ia-embeddings",
+      "branch": "main",
+      "head_sha": "4ab25fcfe392a1a20de9eeb0e433e5627b8e1d47",
+      "notes": "Repository currently contains README/LICENSE/package archive but no directly auditable BGE-M3 runtime implementation at root."
+    },
+    {
+      "id": "LEGACY_ZORAN_DATASETS_REPO",
+      "role": "HISTORICAL_DATASET_DOCUMENTATION",
+      "s_objectif": 30,
+      "status": "REJECT_AS_FINAL_CORPUS",
+      "repository": "Zoran-IA-Mimetique/zoran-datasets",
+      "branch": "main",
+      "head_sha": "05e15bb8046e44554c95b6b9d6cbd2bfa34f0d30",
+      "notes": "Tiny repository/documentation package; not evidence of the current large local Wikipedia/Zoran corpus or semantic index."
+    },
+    {
+      "id": "ZTRACE_CURRENT_RUNTIME",
+      "role": "TEXT_TO_STRUCTURED_SEMANTICS",
+      "s_objectif": 93,
+      "status": "NON_MESURE_SOURCE_NOT_IDENTIFIED_IN_AUDITED_CURRENT_REPOS",
+      "notes": "Repository named Zoran-Trace-Init-Copilot is unrelated mimetic trace documentation and must not be confused with the ZTRACE semantic engine."
+    },
+    {
+      "id": "NLP_JS_CURRENT_RUNTIME",
+      "role": "DETERMINISTIC_LANGUAGE_FRONTEND",
+      "s_objectif": 94,
+      "status": "NON_MESURE_SOURCE_NOT_IDENTIFIED_IN_AUDITED_CURRENT_REPOS"
+    },
+    {
+      "id": "LOCAL_WIKIPEDIA_ZORAN_CORPUS",
+      "role": "OFFLINE_KNOWLEDGE_CORPUS",
+      "s_objectif": 99,
+      "status": "NON_MESURE_NOT_PRESENT_AS_AUDITABLE_CURRENT_GITHUB_ASSET",
+      "notes": "Known project objective/local asset from prior work, but no exact current path/version/hash is proven from this GitHub-only environment."
+    }
+  ],
+  "rejected_architectures": [
+    "LEGACY_00_11_CHAIN_AS_CORE",
+    "GEMMA_REASONING",
+    "LLM_DECISION",
+    "BGE_M3_IN_BROWSER_AS_CANONICAL_RUNTIME",
+    "OLD_GENERIC_EMBEDDINGS_REPO_AS_BGE_M3_RUNTIME",
+    "OLD_DATASET_STUB_AS_FINAL_CORPUS"
+  ],
+  "phase_1_result": {
+    "cartography": "PASS",
+    "bge_model_family": "PASS",
+    "bge_project_runtime": "NON_MESURE",
+    "corpus_exact_asset": "NON_MESURE",
+    "semantic_index": "NON_MESURE",
+    "construction_percent_delta": 0
+  }
+}
